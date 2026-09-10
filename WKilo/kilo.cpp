@@ -25,7 +25,7 @@
 #include <numeric>
 #include <format>
 #include <chrono>
-
+#include <span>
 
 
 /*** defines ***/
@@ -35,19 +35,38 @@ namespace wkilocpp
 
 //#define KILO_VERSION "0.0.1"
 
-static constexpr const char* KILO_VERSION = "0.0.1";
+constexpr const char* KILO_VERSION = "0.0.1";
 
 //#define KILO_TAB_STOP 8
 //#define KILO_QUIT_TIMES 3
 
-static constexpr int KILO_TAB_STOP = 8;
-static constexpr int KILO_QUIT_TIMES = 3;
+constexpr int KILO_TAB_STOP = 8;
+constexpr int KILO_QUIT_TIMES = 3;
 
 
 //#define CTRL_KEY(k) ((k) & 0x1f)
-static inline constexpr int CTRL_KEY(int key) noexcept {
-    return key & 0x1f;
+constexpr int CTRL_KEY(const int key) noexcept 
+{
+    constexpr int mask = 0x1F;
+    return key & mask;
 }
+
+constexpr bool my_is_space(const char c) noexcept
+{
+    return unicode::is_space(static_cast<char32_t>(static_cast<unsigned char>(c)));
+}
+
+template <typename T> constexpr  bool is_separator(T) = delete; // use only char variant.
+
+constexpr bool is_separator(const char c) noexcept
+{
+    using namespace std::string_view_literals;
+
+    constexpr std::string_view specials = ",.()+-/*=~%<>[];{}^"sv;
+
+    return my_is_space(c) || (c == '\0') || (specials.find(c) != specials.npos);
+}
+
 
 
 enum editorKey {
@@ -81,13 +100,14 @@ static constexpr int HL_HIGHLIGHT_STRINGS = (1 << 1);
 
 /*** data ***/
 
-struct editorSyntax {
-    const char* filetype;
-    const char* *filematch;
-    const char* *keywords;
-    const char* singleline_comment_start;
-    const char* multiline_comment_start;
-    const char* multiline_comment_end;
+struct editorSyntax 
+{
+    std::string_view filetype;
+    std::span<const std::string_view > filematch;
+    std::span<const std::string_view > keywords;
+    std::string_view singleline_comment_start;
+    std::string_view multiline_comment_start;
+    std::string_view multiline_comment_end;
     int flags;
 };
 
@@ -127,18 +147,19 @@ struct editorStatusMessage
 };
 
 struct editorConfig {
-    int cx, cy;
-    int rx;
-    int rowoff;
-    int coloff;
-    int screenrows;
-    int screencols;
-    int numrows;
-    erow* row;
-    int dirty;
-    char* filename;
-    editorStatusMessage statusmsg;
-    struct editorSyntax* syntax;
+    int cx = 0;
+    int cy = 0;
+    int rx = 0;
+    int rowoff = 0;
+    int coloff = 0;
+    int screenrows = 0;
+    int screencols = 0;
+    int numrows = 0;
+    erow* row = nullptr;
+    int dirty = 0;
+    char* filename = nullptr;
+    editorStatusMessage statusmsg{};
+    const struct editorSyntax* syntax = nullptr;
 
     // NOTE: See below item is commented out
     //struct termios orig_termios;
@@ -148,16 +169,16 @@ struct editorConfig E;
 
 /*** filetypes ***/
 
-const char* C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
-const char* C_HL_keywords[] = {
+constexpr std::string_view C_HL_extensions[] = { ".c", ".h", ".cpp" };
+constexpr std::string_view C_HL_keywords[] = {
         "switch", "if", "while", "for", "break", "continue", "return", "else",
         "struct", "union", "typedef", "static", "enum", "class", "case",
 
         "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-        "void|", NULL
+        "void|"
 };
 
-struct editorSyntax HLDB[] = {
+constexpr struct editorSyntax HLDB[] = {
         {
                 "c",
                 C_HL_extensions,
@@ -281,21 +302,6 @@ int getCursorPosition(int* rows, int* cols) {
 
 
 /*** syntax highlighting ***/
-constexpr bool my_is_space(const char c) noexcept 
-{
-    return unicode::is_space(static_cast<char32_t>(static_cast<unsigned char>(c)));
-}
-
-template <typename T> constexpr  bool is_separator(T) = delete; // use only char variant.
-
-constexpr bool is_separator(const char c) noexcept
-{
-    using namespace std::string_view_literals;
-    
-    constexpr std::string_view specials = ",.()+-/*=~%<>[];{}^"sv;
-
-    return my_is_space(c) || (c == '\0') || ( specials.find(c) != specials.npos) ;
-}
 
 
 void editorUpdateSyntax(erow* row) {
@@ -304,15 +310,15 @@ void editorUpdateSyntax(erow* row) {
 
     if (E.syntax == NULL) return;
 
-    const char** keywords = E.syntax->keywords;
+    std::span<const std::string_view> keywords = E.syntax->keywords;
 
-    const char* scs = E.syntax->singleline_comment_start;
-    const char* mcs = E.syntax->multiline_comment_start;
-    const char* mce = E.syntax->multiline_comment_end;
+    const std::string_view scs = E.syntax->singleline_comment_start;
+    const std::string_view mcs = E.syntax->multiline_comment_start;
+    const std::string_view mce = E.syntax->multiline_comment_end;
 
-    int scs_len = scs ? (int) strlen(scs) : 0;
-    int mcs_len = mcs ? (int) strlen(mcs) : 0;
-    int mce_len = mce ? (int) strlen(mce) : 0;
+    //int scs_len = scs ? (int) strlen(scs) : 0;
+    //int mcs_len = mcs ? (int) strlen(mcs) : 0;
+    //int mce_len = mce ? (int) strlen(mce) : 0;
 
     int prev_sep = 1;
     
@@ -320,24 +326,24 @@ void editorUpdateSyntax(erow* row) {
     
     bool in_comment = (row->idx > 0 && E.row[row->idx - 1].hl_open_comment);
 
-    int i = 0;
+    size_t i = 0;
     while (i < row->rsize) {
         char c = row->render[i];
         unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
 
-        if (scs_len && !in_string && !in_comment) {
-            if (!strncmp(&row->render[i], scs, scs_len)) {
+        if (scs.length() > 0 && !in_string && !in_comment) {
+            if (!strncmp(&row->render[i], scs.data(), scs.length())) {
                 memset(&row->hl[i], HL_COMMENT, row->rsize - i);
                 break;
             }
         }
 
-        if (mcs_len && mce_len && !in_string) {
+        if (mcs.length() > 0 && mce.length() > 0 && !in_string) {
             if (in_comment) {
                 row->hl[i] = HL_MLCOMMENT;
-                if (!strncmp(&row->render[i], mce, mce_len)) {
-                    memset(&row->hl[i], HL_MLCOMMENT, mce_len);
-                    i += mce_len;
+                if (!strncmp(&row->render[i], mce.data(), mce.length())) {
+                    memset(&row->hl[i], HL_MLCOMMENT, mce.length());
+                    i += mce.length();
                     in_comment = false;
                     prev_sep = 1;
                     continue;
@@ -347,9 +353,9 @@ void editorUpdateSyntax(erow* row) {
                     continue;
                 }
             }
-            else if (!strncmp(&row->render[i], mcs, mcs_len)) {
-                memset(&row->hl[i], HL_MLCOMMENT, mcs_len);
-                i += mcs_len;
+            else if (!strncmp(&row->render[i], mcs.data(), mcs.length())) {
+                memset(&row->hl[i], HL_MLCOMMENT, mcs.length());
+                i += mcs.length();
                 in_comment = true;
                 continue;
             }
@@ -390,19 +396,23 @@ void editorUpdateSyntax(erow* row) {
 
         if (prev_sep) {
             int j;
-            for (j = 0; keywords[j]; j++) {
-                int klen = (int)strlen(keywords[j]);
-                int kw2 = keywords[j][klen - 1] == '|';
-                if (kw2) klen--;
+            for (j = 0; j < (int)keywords.size(); j++) {
+                int klen = (int)keywords[j].length();
+                const bool kw2 = keywords[j].ends_with('|');
+                if (kw2) 
+                    klen--;
 
-                if (!strncmp(&row->render[i], keywords[j], klen) &&
+                //TODO: remove strncmp and use string_view.compare.
+                if (!strncmp(&row->render[i], keywords[j].data(), klen) &&
                     is_separator(row->render[i + klen])) {
                     memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
                     i += klen;
                     break;
                 }
             }
-            if (keywords[j] != NULL) {
+            
+            if ( j < keywords.size()) 
+            {
                 prev_sep = 0;
                 continue;
             }
@@ -437,13 +447,17 @@ void editorSelectSyntaxHighlight() {
 
     char* ext = strrchr(E.filename, '.');
 
-    for (unsigned int j = 0; j < HLDB_ENTRIES; j++) {
-        struct editorSyntax* s = &HLDB[j];
-        unsigned int i = 0;
-        while (s->filematch[i]) {
-            int is_ext = (s->filematch[i][0] == '.');
-            if ((is_ext && ext && !strcmp(ext, s->filematch[i])) ||
-                (!is_ext && strstr(E.filename, s->filematch[i]))) {
+    for (unsigned int j = 0; j < HLDB_ENTRIES; j++) 
+    {
+        const struct editorSyntax* s = &HLDB[j];
+        for (const std::string_view filematch : s->filematch)
+        {
+            const bool is_ext = filematch.starts_with('.');
+
+            //TODO: remove strcmp and use native std::string_view.find
+            if ((is_ext && ext && !strcmp(ext, filematch.data() ) ) ||
+                (!is_ext && strstr(E.filename, filematch.data() ) ) ) 
+            {
                 E.syntax = s;
 
                 int filerow;
@@ -453,7 +467,6 @@ void editorSelectSyntaxHighlight() {
 
                 return;
             }
-            i++;
         }
     }
 }
@@ -786,6 +799,10 @@ struct abuf
     {
         value.append(1, symbol);
     }
+    void append(const char symbol, size_t count)
+    {
+        value.append(count, symbol);
+    }
 };
 
 /*** output ***/
@@ -818,24 +835,36 @@ void editorDrawRows(struct abuf* ab) {
         int filerow = y + E.rowoff;
         if (filerow >= E.numrows) {
             if (E.numrows == 0 && y == E.screenrows / 3) {
-                char welcome[80];
-                int welcomelen = snprintf(welcome, sizeof(welcome),
-                    "Kilo editor -- version %s", KILO_VERSION);
-                if (welcomelen > E.screencols) welcomelen = E.screencols;
-                int padding = (E.screencols - welcomelen) / 2;
-                if (padding) {
+
+                std::string welcome = std::format("Kilo editor -- version {}", KILO_VERSION);
+                //char welcome[80];
+
+                //int welcomelen = snprintf(welcome, sizeof(welcome),
+                //    "Kilo editor -- version %s", KILO_VERSION);
+
+                //if (welcomelen > E.screencols) 
+                //    welcomelen = E.screencols;
+                if (welcome.length() > E.screencols) {
+                    welcome.erase(welcome.begin() + E.screencols, welcome.end());
+                }
+
+                int padding = (E.screencols - (int) welcome.length()) / 2;
+                
+                if (padding > 0) {
                     //abAppend(ab, "~", 1);
                     ab->append('~');
                     padding--;
                 }
-                while (padding--) {
-                    //abAppend(ab, " ", 1);
-                    ab->append(' ');
+                if (padding > 0) {
+                    ab->append(' ', static_cast<size_t>(padding));
                 }
+                //while (padding--) {
+                //    //abAppend(ab, " ", 1);
+                //    ab->append(' ');
+                //}
                 
                 //abAppend(ab, welcome, welcomelen);
-                std::string_view welcome_view(welcome, welcomelen);
-                ab->append(welcome_view);
+                ab->append(welcome);
             }
             else {
                 //abAppend(ab, "~", 1);
@@ -864,11 +893,12 @@ void editorDrawRows(struct abuf* ab) {
                     ab->append("\x1b[m"sv);
 
                     if (current_color != -1) {
-                        char buf[16];
-                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+                        //char buf[16];
+                        //int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
                         //abAppend(ab, buf, clen);
-                        std::string_view buf_view(buf, clen);
-                        ab->append(buf_view);
+                        //std::string_view buf_view(buf, clen);
+                        std::string buf = std::format("\x1b[{}m", current_color);
+                        ab->append(buf);
                     }
                 }
                 else if (hl[j] == HL_NORMAL) {
@@ -884,11 +914,12 @@ void editorDrawRows(struct abuf* ab) {
                     int color = editorSyntaxToColor(hl[j]);
                     if (color != current_color) {
                         current_color = color;
-                        char buf[16];
-                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                        //char buf[16];
+                        //int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
                         //abAppend(ab, buf, clen);
-                        std::string_view buf_view(buf, clen);
-                        ab->append(buf_view);
+                        //std::string_view buf_view(buf, clen);
+                        std::string buf = std::format("\x1b[{}m", color);
+                        ab->append(buf);
                     }
                     //abAppend(ab, &c[j], 1);
                     ab->append(c[j]);
@@ -911,29 +942,55 @@ void editorDrawStatusBar(struct abuf* ab) {
     //abAppend(ab, "\x1b[7m", 4);
     ab->append("\x1b[7m"sv);
 
-    char status[80], rstatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
-        E.filename ? E.filename : "[No Name]", E.numrows,
+    //char status[80], rstatus[80];
+    std::string status = std::format( "{:.20} - {} lines {}",
+        E.filename == nullptr ? "[No Name]" : E.filename,
+        E.numrows,
         E.dirty ? "(modified)" : "");
-    int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
-        E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
-    if (len > E.screencols) len = E.screencols;
+
+    //int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+    //    E.filename ? E.filename : "[No Name]", E.numrows,
+    //    E.dirty ? "(modified)" : "");
+    //
+    std::string rstatus = std::format("{} | {}/{}", E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
+
+    //int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
+    //    E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
+    //
+    //if (len > E.screencols) 
+    //    len = E.screencols;
+    if (status.length() > E.screencols) {
+        status.erase(status.begin() + E.screencols, status.end());
+    }
     
     //abAppend(ab, status, len);
-    ab->append(std::string_view(status, len));
+    ab->append(status);
     
-    while (len < E.screencols) {
-        if (E.screencols - len == rlen) {
-            //abAppend(ab, rstatus, rlen);
-            ab->append(std::string_view(rstatus, rlen));
-            break;
+    if (status.length() < E.screencols) {
+        if (E.screencols - status.length() >= rstatus.length()) {
+            size_t space_count = E.screencols - status.length() - rstatus.length();
+            ab->append(' ', space_count);
+            ab->append(rstatus);
         }
         else {
-            //abAppend(ab, " ", 1);
-            ab->append(' ');
-            len++;
+            //add only spaces
+            size_t space_count = E.screencols - status.length();
+            ab->append(' ', space_count);
         }
     }
+    //int len = status.length();
+    //while (len < E.screencols) {
+    //    if (E.screencols - len == rstatus.length()) {
+    //        //abAppend(ab, rstatus, rlen);
+    //        ab->append(rstatus);
+    //        break;
+    //    }
+    //    else {
+    //        //abAppend(ab, " ", 1);
+    //        ab->append(' ');
+    //        len++;
+    //    }
+    //}
     //abAppend(ab, "\x1b[m", 3);
     ab->append("\x1b[m"sv);
 
@@ -975,12 +1032,13 @@ void editorRefreshScreen() {
     editorDrawStatusBar(&ab);
     editorDrawMessageBar(&ab);
 
-    char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1,
-        (E.rx - E.coloff) + 1);
+    //char buf[32];
+    //snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1,
+    //    (E.rx - E.coloff) + 1);
+    std::string buf = std::format("\x1b[{};{}H", (E.cy - E.rowoff) + 1, (E.rx - E.coloff) + 1);
     
     //abAppend(&ab, buf, (int)strlen(buf));
-    ab.append(std::string_view(buf)); // string_view itself calculated strlen
+    ab.append(buf); 
 
     //abAppend(&ab, "\x1b[?25h", 6);
     ab.append("\x1b[?25h"sv);
@@ -1184,9 +1242,19 @@ void initEditor() {
     E.statusmsg.message = "";
     E.statusmsg.last_time = editorStatusMessage::timer_type::min() ;
     E.syntax = NULL;
-
-    if (getWindowSize(&E.screenrows, &E.screencols) == -1) 
+    
+    E.screencols = 0;
+    E.screenrows = 0;
+    
+    if (getWindowSize(&E.screenrows, &E.screencols) == -1)
+    {
         die("getWindowSize");
+    }
+    
+    if (E.screencols <= 0 || E.screenrows <= 2) {
+        die("getWindowSize incorrect screen cols or rows");
+    }
+
     E.screenrows -= 2;
 }
 
