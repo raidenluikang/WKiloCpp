@@ -15,10 +15,16 @@
 namespace wkilocpp
 {
 
+	struct ScreenSize
+	{
+		int rows;
+		int cols;
+	};
+
 	int enableRawMode(void);
 
 	// https://stackoverflow.com/questions/6812224/getting-terminal-size-in-c-for-windows
-	int getWindowSize(int* rows, int* cols);
+	ScreenSize getWindowSize();
 
 	// Following code uses the Windows api to read and write to console
 	//  instead the C library functions
@@ -26,7 +32,7 @@ namespace wkilocpp
 
 	int winRead(int ignored, char* c, int toread);
 
-	int winWrite(int ignored, const char* buf, int length);
+	int winWrite(int ignored, const char* buf, size_t length);
 
 	//  https://stackoverflow.com/a/47229318/1355145
 
@@ -37,10 +43,12 @@ namespace wkilocpp
 	   // if typedef doesn't exist (msvc, blah)
 	
 
-	ptrdiff_t getline(FILE* stream, std::string& line);
+	//ptrdiff_t getline(FILE* stream, std::string& line);
 
 	// ==========
 
-	wchar_t* yk_utf8_to_utf16_null_terminated(const char* str);
-	int yk_io_writefile(const char* fpath, const char* data, size_t len);
+	//wchar_t* yk_utf8_to_utf16_null_terminated(const char* str);
+	//int yk_io_writefile(const char* fpath, const char* data, size_t len);
+	bool writeFileUtf8(std::string_view fpath, std::string_view data);
+
 } // wkilocpp
