@@ -4,14 +4,16 @@
 #endif 
 
 #include "terminal_access.hpp"
+#include "unicode_space.hpp"
+
 //#include <ctime>
 //#include <io.h>
-#include <cctype>
+//#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
-#include <cstdarg>
+//#include <cstdarg>
 
 //C++ headers
 #include <string_view>
@@ -23,6 +25,8 @@
 #include <numeric>
 #include <format>
 #include <chrono>
+
+
 
 /*** defines ***/
 
@@ -277,10 +281,22 @@ int getCursorPosition(int* rows, int* cols) {
 
 
 /*** syntax highlighting ***/
-
-int is_separator(int c) {
-    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+constexpr bool my_is_space(const char c) noexcept 
+{
+    return unicode::is_space(static_cast<char32_t>(static_cast<unsigned char>(c)));
 }
+
+template <typename T> constexpr  bool is_separator(T) = delete; // use only char variant.
+
+constexpr bool is_separator(const char c) noexcept
+{
+    using namespace std::string_view_literals;
+    
+    constexpr std::string_view specials = ",.()+-/*=~%<>[];{}^"sv;
+
+    return my_is_space(c) || (c == '\0') || ( specials.find(c) != specials.npos) ;
+}
+
 
 void editorUpdateSyntax(erow* row) {
     row->hl = (unsigned char*)realloc(row->hl, row->rsize);
@@ -623,13 +639,14 @@ char* editorRowsToString(int* buflen) {
     return buf;
 }
 
-#if _MSC_VER
-#define strdup _strdup
-#endif 
-
 void editorOpen(char* filename) {
     free(E.filename);
+
+#if _MSC_VER
+    E.filename = _strdup(filename);
+#else 
     E.filename = strdup(filename);
+#endif //_MSC_VER
 
     editorSelectSyntaxHighlight();
 

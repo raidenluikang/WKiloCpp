@@ -142,6 +142,7 @@
     <ClCompile Include="kilo.cpp" />
     <ClCompile Include="kilo_orig.c" />
     <ClCompile Include="terminal_access.cpp" />
+    <ClInclude Include="unicode_space.hpp" />
     <ClInclude Include="terminal_access.hpp" />
     <ClInclude Include="terminal_access_orig.h" />
   </ItemGroup>

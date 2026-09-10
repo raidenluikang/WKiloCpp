@@ -32,5 +32,8 @@
     <ClInclude Include="terminal_access_orig.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="unicode_space.hpp">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
