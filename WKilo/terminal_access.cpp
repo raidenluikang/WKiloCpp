@@ -106,9 +106,7 @@ namespace wkilocpp
     /* Modifications, public domain as well, by Antti Haapala, 11/10/17
        - Switched to getc on 5/23/19 */
 
-       // if typedef doesn't exist (msvc, blah)
-    typedef intptr_t ssize_t;
-
+    
     ssize_t getline(char** lineptr, size_t* n, FILE* stream) {
         size_t pos;
         int c;
@@ -171,6 +169,7 @@ namespace wkilocpp
         pwcs[pwcl] = '\0';
         return pwcs;
     }
+
     int yk_io_writefile(char* fpath, char* data, int len) {
         wchar_t* wpath = yk_utf8_to_utf16_null_terminated(fpath);
         if (wpath == NULL) {
