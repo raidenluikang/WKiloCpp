@@ -58,8 +58,10 @@ enum editorHighlight {
     HL_MATCH
 };
 
-#define HL_HIGHLIGHT_NUMBERS (1<<0)
-#define HL_HIGHLIGHT_STRINGS (1<<1)
+//#define HL_HIGHLIGHT_NUMBERS (1<<0)
+//#define HL_HIGHLIGHT_STRINGS (1<<1)
+static constexpr int HL_HIGHLIGHT_NUMBERS = (1 << 0);
+static constexpr int HL_HIGHLIGHT_STRINGS = (1 << 1);
 
 /*** data ***/
 
@@ -124,12 +126,28 @@ struct editorSyntax HLDB[] = {
         },
 };
 
-#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
+//#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
+static constexpr int HLDB_ENTRIES = (sizeof(HLDB) / sizeof(HLDB[0]));
 
 
-#define write winWrite
-#define read winRead
+//#define write winWrite
+//#define read winRead
 
+#ifdef write
+#undef write
+#endif 
+
+#ifdef read
+#undef read
+#endif
+
+static int write(int ignored, const char* s, int len) {
+    return winWrite(ignored, s, len);
+}
+
+static int read(int ignored, char* s, int len) {
+    return winRead(ignored, s, len);
+}
 
 /*** prototypes ***/
 
@@ -1053,7 +1071,8 @@ void initEditor() {
     E.screenrows -= 2;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) 
+{
     enableRawMode();
     initEditor();
     if (argc >= 2) {

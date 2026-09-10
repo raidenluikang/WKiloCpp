@@ -1,4 +1,5 @@
-#include <cstdio>
+#include <cstdint> // intptr_t
+#include <cstdio> // FILE
 
 #ifndef STDOUT_FILENO
 #define STDOUT_FILENO 1

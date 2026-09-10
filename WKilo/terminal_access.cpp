@@ -2,8 +2,12 @@
 #include <cstdio>
 #include <cstdlib>
 
-#define NOMINMAX 1
-#define _WIN32_LEAN_AND_MEAN
+
+//#include <SDKDDKVer.h>   // сам выставит _WIN32_WINNT под макс. доступную версию
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define _WIN32_WINNT 0x0600   // Windows Vista и новее
 #include <windows.h>
 
 #include "terminal_access.hpp"
