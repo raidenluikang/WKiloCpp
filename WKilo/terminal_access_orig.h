@@ -81,7 +81,7 @@ int getWindowSize(int* rows, int* cols) {
     return 0;
 }
 
-// Following code uses the Windows api to read and write to console
+// Following code uses the Windows api to winRead and winWrite to console
 //  instead the C library functions
 //  below stuff works as expected.
 

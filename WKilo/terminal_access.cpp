@@ -184,11 +184,11 @@ namespace wkilocpp
         return ScreenSize{ .rows = row_size, .cols = col_size };
     }
 
-    // Following code uses the Windows api to read and write to console
+    // Following code uses the Windows api to winRead and winWrite to console
     //  instead the C library functions
     //  below stuff works as expected.
 
-    int ScreenHandle::read(int ignored, char* c, int toread) 
+    int ScreenHandle::winRead(int ignored, char* c, int toread) 
     {
         if (d_ == nullptr || d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL) 
         {
@@ -207,7 +207,7 @@ namespace wkilocpp
         return (int)read;
     }
 
-    int ScreenHandle::write(int ignored, const char* buf, size_t length) 
+    int ScreenHandle::winWrite(int ignored, const char* buf, size_t length) 
     {
         if (d_ == nullptr || d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL) {
             //invalid state
@@ -225,7 +225,7 @@ namespace wkilocpp
         return (int)wrote;
     }
 
-    int winGetLastError() 
+    unsigned long winGetLastError() 
     {
         return ::GetLastError();
     }

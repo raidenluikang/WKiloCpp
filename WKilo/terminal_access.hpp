@@ -1,7 +1,5 @@
-#include <cstdint> // intptr_t
-#include <cstdio> // FILE
 
-#include <string>
+#include <string_view>
 
 #ifndef STDOUT_FILENO
 #define STDOUT_FILENO 1
@@ -35,9 +33,9 @@ namespace wkilocpp
 
 		void enableRawMode(void);
 
-		int read(int ignored, char* c, int toread);
+		int winRead(int ignored, char* c, int toread);
 
-		int write(int ignored, const char* buf, size_t length);
+		int winWrite(int ignored, const char* buf, size_t length);
 
 		static ScreenSize getWindowSize();
 	private:
@@ -49,6 +47,7 @@ namespace wkilocpp
 	//These function do not depend ScreeHandle	
 	bool writeFileUtf8(std::string_view fpath, std::string_view data);
 
-	int winGetLastError();
+	//DWORD is unsigned long in Windows System.
+	unsigned long winGetLastError();
 
 } // wkilocpp

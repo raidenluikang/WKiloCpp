@@ -251,14 +251,14 @@ struct TerminalEditor
 
     void die(const char* s);
     
-    int write(int ignored, const std::string_view s) 
+    int writeOutput(const std::string_view s) 
     {
-        return screenHandle_.write(ignored, s.data(), s.length());
+        return screenHandle_.winWrite(STDOUT_FILENO, s.data(), s.length());
     }
 
-    int read(int ignored, char* s, int len) 
+    int readInput(char* s, int len) 
     {
-        return screenHandle_.read(ignored, s, len);
+        return screenHandle_.winRead(STDIN_FILENO, s, len);
     }
 
 
@@ -333,8 +333,8 @@ void TerminalEditor::die(const char* s)
     
     using namespace std::string_view_literals;
 
-    write(STDOUT_FILENO, "\x1b[2J"sv);
-    write(STDOUT_FILENO, "\x1b[H"sv);
+    writeOutput("\x1b[2J"sv);
+    writeOutput("\x1b[H"sv);
     
     throw std::system_error( winGetLastError(), std::system_category(), s);
 }
@@ -345,9 +345,9 @@ int TerminalEditor::readKey()
     int nread = 0;
     char c = 0;
 
-    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) 
+    while ((nread = readInput(&c, 1)) != 1) 
     {
-        if (nread == -1 && errno != EAGAIN)
+        if (nread == -1)
         {
             die("read");
         }
@@ -357,14 +357,14 @@ int TerminalEditor::readKey()
     {
         char seq[3]{};
 
-        if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-        if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+        if (readInput( &seq[0], 1) != 1) return '\x1b';
+        if (readInput( &seq[1], 1) != 1) return '\x1b';
 
         if (seq[0] == '[') 
         {
             if (seq[1] >= '0' && seq[1] <= '9') 
             {
-                if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+                if (readInput(&seq[2], 1) != 1) return '\x1b';
 
                 if (seq[2] == '~') 
                 {
@@ -418,12 +418,14 @@ ScreenSize TerminalEditor::getCursorPosition()
     
     using namespace std::string_view_literals;
 
-    if (write(STDOUT_FILENO, "\x1b[6n"sv) != 4) 
+    if (writeOutput("\x1b[6n"sv) != 4) 
         return result;
 
     while (i < sizeof(buf) - 1) 
     {
-        if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+        if (readInput(&buf[i], 1) != 1) 
+            break;
+
         if (buf[i] == 'R') break;
         i++;
     }
@@ -439,13 +441,13 @@ ScreenSize TerminalEditor::getCursorPosition()
         const char* start_buf = buf + 2;
         const char* end_buf = buf + i;
 
-        //1. read rows
+        //1. winRead rows
         const auto [ptr_row, ec_row] = std::from_chars(start_buf, end_buf, result.rows);
         if (ec_row != std::errc{}) {
             return result;
         }
 
-        //2. read cols
+        //2. winRead cols
         if (!(ptr_row != end_buf && *ptr_row == ';')) {
             // ';' separator not found
             return result;
@@ -1362,7 +1364,7 @@ void TerminalEditor::refreshScreen() {
 
     ab.append("\x1b[?25h"sv);
 
-    write(STDOUT_FILENO, ab.value);
+    writeOutput(ab.value);
 }
 
 
@@ -1489,8 +1491,8 @@ EditorKeyProcessState TerminalEditor::processKeypress() {
             return EditorKeyProcessState::do_continue;
         }
         
-        write(STDOUT_FILENO, "\x1b[2J"sv);
-        write(STDOUT_FILENO, "\x1b[H"sv);
+        writeOutput("\x1b[2J"sv);
+        writeOutput("\x1b[H"sv);
 
         return EditorKeyProcessState::do_exit;
         
