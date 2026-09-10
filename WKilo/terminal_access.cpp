@@ -170,7 +170,7 @@ namespace wkilocpp
         return pwcs;
     }
 
-    int yk_io_writefile(char* fpath, char* data, int len) {
+    int yk_io_writefile(const char* fpath, char* data, int len) {
         wchar_t* wpath = yk_utf8_to_utf16_null_terminated(fpath);
         if (wpath == NULL) {
             return -1;
