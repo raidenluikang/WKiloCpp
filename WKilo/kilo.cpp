@@ -13,9 +13,19 @@
 #include <cerrno>
 #include <cstdarg>
 
+//C++ headers
+#include <string_view>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <utility>
+#include <functional>
+#include <numeric>
+
 /*** defines ***/
 
-
+namespace wkilocpp
+{ 
 
 //#define KILO_VERSION "0.0.1"
 
@@ -711,7 +721,7 @@ void editorFind() {
 }
 
 /*** append buffer ***/
-
+#if 0 //old C code
 struct abuf {
     char* b;
     int len;
@@ -731,6 +741,17 @@ void abAppend(struct abuf* ab, const char* s, int len) {
 void abFree(struct abuf* ab) {
     free(ab->b);
 }
+#endif 
+struct abuf {
+    std::string value;
+
+    void append(const std::string_view sview) {
+        value.append(sview.begin(), sview.end());
+    }
+    void append(const char symbol) {
+        value.append(1, symbol);
+    }
+};
 
 /*** output ***/
 
@@ -755,6 +776,8 @@ void editorScroll() {
 }
 
 void editorDrawRows(struct abuf* ab) {
+    using namespace std::string_view_literals;
+
     int y;
     for (y = 0; y < E.screenrows; y++) {
         int filerow = y + E.rowoff;
@@ -766,14 +789,22 @@ void editorDrawRows(struct abuf* ab) {
                 if (welcomelen > E.screencols) welcomelen = E.screencols;
                 int padding = (E.screencols - welcomelen) / 2;
                 if (padding) {
-                    abAppend(ab, "~", 1);
+                    //abAppend(ab, "~", 1);
+                    ab->append('~');
                     padding--;
                 }
-                while (padding--) abAppend(ab, " ", 1);
-                abAppend(ab, welcome, welcomelen);
+                while (padding--) {
+                    //abAppend(ab, " ", 1);
+                    ab->append(' ');
+                }
+                
+                //abAppend(ab, welcome, welcomelen);
+                std::string_view welcome_view(welcome, welcomelen);
+                ab->append(welcome_view);
             }
             else {
-                abAppend(ab, "~", 1);
+                //abAppend(ab, "~", 1);
+                ab->append('~');
             }
         }
         else {
@@ -787,21 +818,32 @@ void editorDrawRows(struct abuf* ab) {
             for (j = 0; j < len; j++) {
                 if (iscntrl(c[j])) {
                     char sym = (c[j] <= 26) ? '@' + c[j] : '?';
-                    abAppend(ab, "\x1b[7m", 4);
-                    abAppend(ab, &sym, 1);
-                    abAppend(ab, "\x1b[m", 3);
+                    //abAppend(ab, "\x1b[7m", 4);
+                    ab->append("\x1b[7m"sv);
+
+                    //abAppend(ab, &sym, 1);
+                    ab->append(sym);
+
+
+                    //abAppend(ab, "\x1b[m", 3);
+                    ab->append("\x1b[m"sv);
+
                     if (current_color != -1) {
                         char buf[16];
                         int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
-                        abAppend(ab, buf, clen);
+                        //abAppend(ab, buf, clen);
+                        std::string_view buf_view(buf, clen);
+                        ab->append(buf_view);
                     }
                 }
                 else if (hl[j] == HL_NORMAL) {
                     if (current_color != -1) {
-                        abAppend(ab, "\x1b[39m", 5);
+                        //abAppend(ab, "\x1b[39m", 5);
+                        ab->append("\x1b[39m"sv);
                         current_color = -1;
                     }
-                    abAppend(ab, &c[j], 1);
+                    //abAppend(ab, &c[j], 1);
+                    ab->append(c[j]);
                 }
                 else {
                     int color = editorSyntaxToColor(hl[j]);
@@ -809,21 +851,31 @@ void editorDrawRows(struct abuf* ab) {
                         current_color = color;
                         char buf[16];
                         int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
-                        abAppend(ab, buf, clen);
+                        //abAppend(ab, buf, clen);
+                        std::string_view buf_view(buf, clen);
+                        ab->append(buf_view);
                     }
-                    abAppend(ab, &c[j], 1);
+                    //abAppend(ab, &c[j], 1);
+                    ab->append(c[j]);
                 }
             }
-            abAppend(ab, "\x1b[39m", 5);
+            //abAppend(ab, "\x1b[39m", 5);
+            ab->append("\x1b[39m"sv);
         }
 
-        abAppend(ab, "\x1b[K", 3);
-        abAppend(ab, "\r\n", 2);
+        //abAppend(ab, "\x1b[K", 3);
+        ab->append("\x1b[K"sv);
+
+        //abAppend(ab, "\r\n", 2);
+        ab->append("\r\n"sv);
     }
 }
 
 void editorDrawStatusBar(struct abuf* ab) {
-    abAppend(ab, "\x1b[7m", 4);
+    using namespace std::string_view_literals;
+    //abAppend(ab, "\x1b[7m", 4);
+    ab->append("\x1b[7m"sv);
+
     char status[80], rstatus[80];
     int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
         E.filename ? E.filename : "[No Name]", E.numrows,
@@ -831,36 +883,59 @@ void editorDrawStatusBar(struct abuf* ab) {
     int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
         E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
     if (len > E.screencols) len = E.screencols;
-    abAppend(ab, status, len);
+    
+    //abAppend(ab, status, len);
+    ab->append(std::string_view(status, len));
+    
     while (len < E.screencols) {
         if (E.screencols - len == rlen) {
-            abAppend(ab, rstatus, rlen);
+            //abAppend(ab, rstatus, rlen);
+            ab->append(std::string_view(rstatus, rlen));
             break;
         }
         else {
-            abAppend(ab, " ", 1);
+            //abAppend(ab, " ", 1);
+            ab->append(' ');
             len++;
         }
     }
-    abAppend(ab, "\x1b[m", 3);
-    abAppend(ab, "\r\n", 2);
+    //abAppend(ab, "\x1b[m", 3);
+    ab->append("\x1b[m"sv);
+
+    //abAppend(ab, "\r\n", 2);
+    ab->append("\r\n"sv);
 }
 
-void editorDrawMessageBar(struct abuf* ab) {
-    abAppend(ab, "\x1b[K", 3);
+void editorDrawMessageBar(struct abuf* ab) 
+{
+    using namespace std::string_view_literals;
+
+    //abAppend(ab, "\x1b[K", 3);
+    ab->append("\x1b[K"sv);
+
     int msglen = (int)strlen(E.statusmsg);
-    if (msglen > E.screencols) msglen = E.screencols;
+    if (msglen > E.screencols) 
+        msglen = E.screencols;
+
     if (msglen && time(NULL) - E.statusmsg_time < 5)
-        abAppend(ab, E.statusmsg, msglen);
+    {
+        //abAppend(ab, E.statusmsg, msglen);
+        std::string_view status_view(E.statusmsg, msglen);
+        ab->append(status_view);
+    }
 }
 
 void editorRefreshScreen() {
+    using namespace std::string_view_literals;
+
     editorScroll();
 
-    struct abuf ab = ABUF_INIT;
+    struct abuf ab {};// = ABUF_INIT;
 
-    abAppend(&ab, "\x1b[?25l", 6);
-    abAppend(&ab, "\x1b[H", 3);
+    //abAppend(&ab, "\x1b[?25l", 6);
+    ab.append("\x1b[?25l"sv);
+    //abAppend(&ab, "\x1b[H", 3);
+    ab.append("\x1b[H"sv);
 
     editorDrawRows(&ab);
     editorDrawStatusBar(&ab);
@@ -869,12 +944,15 @@ void editorRefreshScreen() {
     char buf[32];
     snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1,
         (E.rx - E.coloff) + 1);
-    abAppend(&ab, buf, (int)strlen(buf));
+    
+    //abAppend(&ab, buf, (int)strlen(buf));
+    ab.append(std::string_view(buf)); // string_view itself calculated strlen
 
-    abAppend(&ab, "\x1b[?25h", 6);
+    //abAppend(&ab, "\x1b[?25h", 6);
+    ab.append("\x1b[?25h"sv);
 
-    write(STDOUT_FILENO, ab.b, ab.len);
-    abFree(&ab);
+    write(STDOUT_FILENO, ab.value.c_str(), (int)ab.value.size());
+    //abFree(&ab);
 }
 
 void editorSetStatusMessage(const char* fmt, ...) {
@@ -1071,20 +1149,23 @@ void initEditor() {
     E.screenrows -= 2;
 }
 
+} // wkilocpp namespace
+
 int main(int argc, char* argv[]) 
 {
-    enableRawMode();
-    initEditor();
+    wkilocpp::enableRawMode();
+    wkilocpp::initEditor();
     if (argc >= 2) {
-        editorOpen(argv[1]);
+        wkilocpp::editorOpen(argv[1]);
     }
 
-    editorSetStatusMessage(
+    wkilocpp::editorSetStatusMessage(
         "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
-    while (1) {
-        editorRefreshScreen();
-        editorProcessKeypress();
+    while (true) 
+    {
+        wkilocpp::editorRefreshScreen();
+        wkilocpp::editorProcessKeypress();
     }
 
     return 0;
