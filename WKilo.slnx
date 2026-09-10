@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="WKilo/WKilo.vcxproj" Id="eb8329c4-e8a8-4262-b78a-03dc941572dc" />
+</Solution>
