@@ -21,6 +21,7 @@
 #include <utility>
 #include <functional>
 #include <numeric>
+#include <format>
 
 /*** defines ***/
 
@@ -95,6 +96,24 @@ typedef struct erow {
     int hl_open_comment;
 } erow;
 
+struct editorStatusMessage
+{
+    std::string message;
+    time_t last_time = 0;
+
+    
+    void setMessage(const std::string& message) 
+    {
+        this->message = message;
+        this->last_time = ::time(nullptr);
+    }
+
+    int elapsedSeconds() const
+    {
+        return (int)( ::time(nullptr) - last_time ) ;
+    }
+};
+
 struct editorConfig {
     int cx, cy;
     int rx;
@@ -106,8 +125,9 @@ struct editorConfig {
     erow* row;
     int dirty;
     char* filename;
-    char statusmsg[80];
-    time_t statusmsg_time;
+    editorStatusMessage statusmsg;
+    //char statusmsg[80];
+    //time_t statusmsg_time;
     struct editorSyntax* syntax;
     // NOTE: See below item is commented out
     //struct termios orig_termios;
@@ -161,9 +181,9 @@ static int read(int ignored, char* s, int len) {
 
 /*** prototypes ***/
 
-void editorSetStatusMessage(const char* fmt, ...);
+//void editorSetStatusMessage(const char* fmt, ...);
 void editorRefreshScreen();
-char* editorPrompt(const char* prompt, void (*callback)(char*, int));
+char* editorPrompt(const std::string_view prompt, void (*callback)(char*, int));
 
 /*** terminal ***/
 
@@ -623,9 +643,10 @@ void editorOpen(char* filename) {
 
 void editorSave() {
     if (E.filename == NULL) {
-        E.filename = editorPrompt("Save as: %s (ESC to cancel)", NULL);
+        E.filename = editorPrompt("Save as: {} (ESC to cancel)", NULL);
         if (E.filename == NULL) {
-            editorSetStatusMessage("Save aborted");
+            //editorSetStatusMessage("Save aborted");
+            E.statusmsg.setMessage("Save aborted");
             return;
         }
         editorSelectSyntaxHighlight();
@@ -636,12 +657,14 @@ void editorSave() {
 
     if (yk_io_writefile(E.filename, buf, len) == 0) {
         free(buf);
-        editorSetStatusMessage("Saved to disk");
+        //editorSetStatusMessage("Saved to disk");
+        E.statusmsg.setMessage("Saved to disk");
         return;
     }
 
     free(buf);
-    editorSetStatusMessage("Can't save! I/O error");
+    //editorSetStatusMessage("Can't save! I/O error");
+    E.statusmsg.setMessage("Can't save! I/O error");
 }
 
 /*** find ***/
@@ -706,7 +729,7 @@ void editorFind() {
     int saved_coloff = E.coloff;
     int saved_rowoff = E.rowoff;
 
-    char* query = editorPrompt("Search: %s (Use ESC/Arrows/Enter)",
+    char* query = editorPrompt("Search: {} (Use ESC/Arrows/Enter)",
         editorFindCallback);
 
     if (query) {
@@ -721,34 +744,17 @@ void editorFind() {
 }
 
 /*** append buffer ***/
-#if 0 //old C code
-struct abuf {
-    char* b;
-    int len;
-};
-
-#define ABUF_INIT {NULL, 0}
-
-void abAppend(struct abuf* ab, const char* s, int len) {
-    char* new_ = (char*)realloc(ab->b, ab->len + len);
-
-    if (new_ == NULL) return;
-    memcpy(&new_[ab->len], s, len);
-    ab->b = new_;
-    ab->len += len;
-}
-
-void abFree(struct abuf* ab) {
-    free(ab->b);
-}
-#endif 
-struct abuf {
+struct abuf 
+{
     std::string value;
 
-    void append(const std::string_view sview) {
+    void append(const std::string_view sview) 
+    {
         value.append(sview.begin(), sview.end());
     }
-    void append(const char symbol) {
+    
+    void append(const char symbol) 
+    {
         value.append(1, symbol);
     }
 };
@@ -913,14 +919,13 @@ void editorDrawMessageBar(struct abuf* ab)
     //abAppend(ab, "\x1b[K", 3);
     ab->append("\x1b[K"sv);
 
-    int msglen = (int)strlen(E.statusmsg);
-    if (msglen > E.screencols) 
-        msglen = E.screencols;
+    std::string_view status_view = E.statusmsg.message; // std::string -> std::string_view convertion.
 
-    if (msglen && time(NULL) - E.statusmsg_time < 5)
+    status_view = status_view.substr(0, static_cast<size_t>(std::max(0, E.screencols)));
+    
+    if (!status_view.empty()  && E.statusmsg.elapsedSeconds() < 5)
     {
         //abAppend(ab, E.statusmsg, msglen);
-        std::string_view status_view(E.statusmsg, msglen);
         ab->append(status_view);
     }
 }
@@ -955,17 +960,17 @@ void editorRefreshScreen() {
     //abFree(&ab);
 }
 
-void editorSetStatusMessage(const char* fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
-    va_end(ap);
-    E.statusmsg_time = time(NULL);
-}
+//void editorSetStatusMessage(const char* fmt, ...) {
+//    va_list ap;
+//    va_start(ap, fmt);
+//    vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
+//    va_end(ap);
+//    E.statusmsg_time = time(NULL);
+//}
 
 /*** input ***/
 
-char* editorPrompt(const char* prompt, void (*callback)(char*, int)) {
+char* editorPrompt(const std::string_view prompt, void (*callback)(char*, int)) {
     size_t bufsize = 128;
     char* buf = (char*)malloc(bufsize);
 
@@ -973,7 +978,8 @@ char* editorPrompt(const char* prompt, void (*callback)(char*, int)) {
     buf[0] = '\0';
 
     while (1) {
-        editorSetStatusMessage(prompt, buf);
+        //editorSetStatusMessage(prompt, buf);
+        E.statusmsg.setMessage( std::vformat(prompt, std::make_format_args(buf) ) );
         editorRefreshScreen();
 
         int c = editorReadKey();
@@ -981,15 +987,20 @@ char* editorPrompt(const char* prompt, void (*callback)(char*, int)) {
             if (buflen != 0) buf[--buflen] = '\0';
         }
         else if (c == '\x1b') {
-            editorSetStatusMessage("");
+            //editorSetStatusMessage("");
+            E.statusmsg.setMessage("");
             if (callback) callback(buf, c);
             free(buf);
             return NULL;
         }
         else if (c == '\r') {
             if (buflen != 0) {
-                editorSetStatusMessage("");
-                if (callback) callback(buf, c);
+                //editorSetStatusMessage("");
+                E.statusmsg.setMessage("");
+                
+                if (callback) 
+                    callback(buf, c);
+
                 return buf;
             }
         }
@@ -1059,8 +1070,8 @@ void editorProcessKeypress() {
 
     case CTRL_KEY('q'):
         if (E.dirty && quit_times > 0) {
-            editorSetStatusMessage("WARNING!!! File has unsaved changes. "
-                "Press Ctrl-Q %d more times to quit.", quit_times);
+            E.statusmsg.setMessage(std::format("WARNING!!! File has unsaved changes. "
+                "Press Ctrl-Q {} more times to quit.", quit_times));
             quit_times--;
             return;
         }
@@ -1141,8 +1152,8 @@ void initEditor() {
     E.row = NULL;
     E.dirty = 0;
     E.filename = NULL;
-    E.statusmsg[0] = '\0';
-    E.statusmsg_time = 0;
+    E.statusmsg.message = "";
+    E.statusmsg.last_time = 0;
     E.syntax = NULL;
 
     if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
@@ -1159,8 +1170,7 @@ int main(int argc, char* argv[])
         wkilocpp::editorOpen(argv[1]);
     }
 
-    wkilocpp::editorSetStatusMessage(
-        "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
+    wkilocpp::E.statusmsg.setMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
     while (true) 
     {
