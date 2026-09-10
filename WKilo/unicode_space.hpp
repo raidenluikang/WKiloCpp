@@ -27,4 +27,17 @@ namespace unicode {
     static_assert(!is_space(U'0'));
     static_assert(!is_space(U'\0'));
 
+
+    constexpr bool is_control(char32_t c) noexcept 
+    {
+        return (c <= 0x1F) || (c == 0x7F) || (c >= 0x80 && c <= 0x9F);
+    }
+
+    static_assert(is_control(U'\t'));    // 0x09
+    static_assert(is_control(U'\n'));    // 0x0A
+    static_assert(is_control(0x7F));     // DEL
+    static_assert(is_control(0x85));     // NEL (в C1-диапазоне)
+    static_assert(!is_control(U'A'));
+    static_assert(!is_control(U' '));    // пробел — НЕ control (это как раз isspace)
+
 } // namespace unicode

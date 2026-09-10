@@ -10,8 +10,8 @@
 //#include <io.h>
 //#include <cctype>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
+//#include <cstdlib>
+//#include <cstring>
 #include <cerrno>
 //#include <cstdarg>
 
@@ -68,6 +68,10 @@ constexpr bool is_separator(const char c) noexcept
     return my_is_space(c) || (c == '\0') || (specials.find(c) != specials.npos);
 }
 
+constexpr bool my_is_control(const char c) noexcept
+{
+    return unicode::is_control(static_cast<char32_t>(static_cast<unsigned char>(c)));
+}
 
 
 enum editorKey {
@@ -120,7 +124,7 @@ struct editorRow
     //char* chars;
     std::string chars;
     std::string render;
-    unsigned char* hl;
+    std::vector<unsigned char> hl;
     bool hl_open_comment;
 
     size_t size()const noexcept { return chars.size(); }
@@ -317,8 +321,9 @@ int getCursorPosition(int* rows, int* cols) {
 
 
 void editorUpdateSyntax(editorRow* row) {
-    row->hl = (unsigned char*)realloc(row->hl, row->rsize());
-    memset(row->hl, HL_NORMAL, row->rsize());
+    //row->hl = (unsigned char*)realloc(row->hl, row->rsize());
+    //memset(row->hl, HL_NORMAL, row->rsize());
+    row->hl.assign(row->rsize(), HL_NORMAL);
 
     if (!E.syntax.has_value())
     {
@@ -600,7 +605,7 @@ void editorUpdateRow(editorRow* row) {
     editorUpdateSyntax(row);
 }
 
-void editorInsertRow(size_t at, const char* s, size_t len) 
+void editorInsertRow(size_t at, std::string_view c_view ) 
 {
     if (at > E.numrows())
     {
@@ -620,14 +625,16 @@ void editorInsertRow(size_t at, const char* s, size_t len)
     //E.rowList[at].size = (int)len;
     //E.rowList[at].chars = (char*)malloc(len + 1);
     //memcpy(E.rowList[at].chars, s, len);
-    E.rowList[at].chars.assign(s, len);
+    E.rowList[at].chars.assign(c_view);
     //E.rowList[at].chars[len] = '\0';
 
     //@NOTE: render is now a std::string, automatically initailized with empty string.
     //E.rowList[at].rsize = 0;
     //E.rowList[at].render = NULL;
 
-    E.rowList[at].hl = NULL;
+    //@NOTE: hl is now vector, automatic initialized.
+    //E.rowList[at].hl = NULL; 
+    
     E.rowList[at].hl_open_comment = false;
     
     editorUpdateRow(&E.rowList[at]);
@@ -636,11 +643,6 @@ void editorInsertRow(size_t at, const char* s, size_t len)
     E.dirty++;
 }
 
-void editorFreeRow(editorRow* row) {
-    //free(row->render);
-    //free(row->chars);
-    free(row->hl);
-}
 
 void editorDelRow(int at) 
 {
@@ -649,7 +651,7 @@ void editorDelRow(int at)
         return;
     }
 
-    editorFreeRow(&E.rowList[at]);
+//    editorFreeRow(&E.rowList[at]);
 
     //memmove(&E.rowList[at], &E.rowList[at + 1], sizeof(editorRow) * (E.numrows - at - 1));
     E.rowList.erase( std::next(E.rowList.begin(), at) );
@@ -714,7 +716,7 @@ void editorRowDelChar(editorRow* row, size_t at)
 void editorInsertChar(int c) {
     if (E.cy == E.numrows()) 
     {
-        editorInsertRow(E.numrows(), "", 0);
+        editorInsertRow(E.numrows(), "");
     }
     editorRowInsertChar(&E.rowList[E.cy], E.cx, c);
     E.cx++;
@@ -722,7 +724,7 @@ void editorInsertChar(int c) {
 
 void editorInsertNewline() {
     if (E.cx == 0) {
-        editorInsertRow(E.cy, "", 0);
+        editorInsertRow(E.cy, "");
     }
     else  {
         editorRow* row = &E.rowList[E.cy];
@@ -730,12 +732,19 @@ void editorInsertNewline() {
         //TODO: think about when E.cx == row->size() case.
         if (std::cmp_less(E.cx, row->size())) 
         {
-            editorInsertRow(E.cy + 1, &row->chars[E.cx], row->size() - E.cx);
+            std::string_view chars_view = row->chars;
+            editorInsertRow(E.cy + 1,  chars_view.substr(E.cx) );
             row = &E.rowList[E.cy];
             //row->size = E.cx;
             //row->chars[row->size] = '\0';
             row->chars.resize(E.cx);
 
+            editorUpdateRow(row);
+        }
+        else if (std::cmp_equal(E.cx, row->size()))
+        {
+            editorInsertRow(E.cy + 1, "");//empty string will be added
+            row = &E.rowList[E.cy];
             editorUpdateRow(row);
         }
     }
@@ -816,21 +825,28 @@ void editorOpen(const char* filename) {
     editorSelectSyntaxHighlight();
 
     FILE* fp = fopen(filename, "r");
-    if (!fp)
+    if (nullptr == fp)
     {
         die("fopen");
     }
 
-    char* line = NULL;
-    size_t linecap = 0;
-    ssize_t linelen;
-    while ((linelen = getline(&line, &linecap, fp)) != -1) {
-        while (linelen > 0 && (line[linelen - 1] == '\n' ||
-            line[linelen - 1] == '\r'))
-            linelen--;
-        editorInsertRow(E.numrows(), line, linelen);
+    std::string line;
+    
+    while ( getline(fp, line) != -1) 
+    {
+        
+        //while (linelen > 0 && (line[linelen - 1] == '\n' ||
+        //    line[linelen - 1] == '\r'))
+        //    linelen--;
+        
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
+        {
+            line.pop_back();
+        }
+
+        editorInsertRow(E.numrows(), line );
     }
-    free(line);
+    
     fclose(fp);
     E.dirty = 0;
 }
@@ -871,12 +887,16 @@ void editorFindCallback(const std::string& query, int key) {
     static int direction = 1;
 
     static int saved_hl_line;
-    static char* saved_hl = NULL;
+    static std::optional<std::vector<unsigned char>> saved_hl = std::nullopt;
 
-    if (saved_hl) {
-        memcpy(E.rowList[saved_hl_line].hl, saved_hl, E.rowList[saved_hl_line].rsize());
-        free(saved_hl);
-        saved_hl = NULL;
+    if (saved_hl.has_value()) 
+    {
+        editorRow& row = E.rowList[saved_hl_line];
+        row.hl.swap( *saved_hl ) ;
+        //memcpy(E.rowList[saved_hl_line].hl, saved_hl, E.rowList[saved_hl_line].rsize());
+        //free(saved_hl);
+        saved_hl = std::nullopt;
+        //saved_hl = NULL;
     }
 
     if (key == '\r' || key == '\x1b') {
@@ -920,9 +940,13 @@ void editorFindCallback(const std::string& query, int key) {
             E.rowoff = (int)E.numrows();
 
             saved_hl_line = current;
-            saved_hl = (char*)malloc(row->rsize());
-            memcpy(saved_hl, row->hl, row->rsize());
-            memset(&row->hl[match_pos], HL_MATCH, /*strlen(query)*/query.length());
+            //saved_hl = (char*)malloc(row->rsize());
+            //memcpy(saved_hl, row->hl, row->rsize());
+            
+            saved_hl = row->hl; // copy it and save.
+
+            //memset(&row->hl[match_pos], HL_MATCH, /*strlen(query)*/query.length());
+            std::fill_n(row->hl.begin() + match_pos, query.length(), HL_MATCH);
             break;
         }
     }
@@ -1049,58 +1073,61 @@ void editorDrawRows(struct abuf* ab) {
             if (len > E.screencols) 
                 len = E.screencols;
 
-            char* c = &E.rowList[filerow].render[E.coloff];
-            
-            unsigned char* hl = &E.rowList[filerow].hl[E.coloff];
-            
-            int current_color = -1;
-            int j;
-            for (j = 0; j < len; j++) {
-                if (iscntrl(c[j])) {
-                    char sym = (c[j] <= 26) ? '@' + c[j] : '?';
-                    //abAppend(ab, "\x1b[7m", 4);
-                    ab->append("\x1b[7m"sv);
+            //@NOTE: this condition is required, otherwice may access empty vector.
+            if (len > 0) {
+                char* c = &E.rowList[filerow].render[E.coloff];
 
-                    //abAppend(ab, &sym, 1);
-                    ab->append(sym);
+                unsigned char* hl = &E.rowList[filerow].hl[E.coloff];
+
+                int current_color = -1;
+                int j;
+                for (j = 0; j < len; j++) {
+                    if (my_is_control(c[j])) {
+                        char sym = (c[j] <= 26) ? '@' + c[j] : '?';
+                        //abAppend(ab, "\x1b[7m", 4);
+                        ab->append("\x1b[7m"sv);
+
+                        //abAppend(ab, &sym, 1);
+                        ab->append(sym);
 
 
-                    //abAppend(ab, "\x1b[m", 3);
-                    ab->append("\x1b[m"sv);
+                        //abAppend(ab, "\x1b[m", 3);
+                        ab->append("\x1b[m"sv);
 
-                    if (current_color != -1) {
-                        //char buf[16];
-                        //int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
-                        //abAppend(ab, buf, clen);
-                        //std::string_view buf_view(buf, clen);
-                        std::string buf = std::format("\x1b[{}m", current_color);
-                        ab->append(buf);
+                        if (current_color != -1) {
+                            //char buf[16];
+                            //int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+                            //abAppend(ab, buf, clen);
+                            //std::string_view buf_view(buf, clen);
+                            std::string buf = std::format("\x1b[{}m", current_color);
+                            ab->append(buf);
+                        }
+                    }
+                    else if (hl[j] == HL_NORMAL) {
+                        if (current_color != -1) {
+                            //abAppend(ab, "\x1b[39m", 5);
+                            ab->append("\x1b[39m"sv);
+                            current_color = -1;
+                        }
+                        //abAppend(ab, &c[j], 1);
+                        ab->append(c[j]);
+                    }
+                    else {
+                        int color = editorSyntaxToColor(hl[j]);
+                        if (color != current_color) {
+                            current_color = color;
+                            //char buf[16];
+                            //int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                            //abAppend(ab, buf, clen);
+                            //std::string_view buf_view(buf, clen);
+                            std::string buf = std::format("\x1b[{}m", color);
+                            ab->append(buf);
+                        }
+                        //abAppend(ab, &c[j], 1);
+                        ab->append(c[j]);
                     }
                 }
-                else if (hl[j] == HL_NORMAL) {
-                    if (current_color != -1) {
-                        //abAppend(ab, "\x1b[39m", 5);
-                        ab->append("\x1b[39m"sv);
-                        current_color = -1;
-                    }
-                    //abAppend(ab, &c[j], 1);
-                    ab->append(c[j]);
-                }
-                else {
-                    int color = editorSyntaxToColor(hl[j]);
-                    if (color != current_color) {
-                        current_color = color;
-                        //char buf[16];
-                        //int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
-                        //abAppend(ab, buf, clen);
-                        //std::string_view buf_view(buf, clen);
-                        std::string buf = std::format("\x1b[{}m", color);
-                        ab->append(buf);
-                    }
-                    //abAppend(ab, &c[j], 1);
-                    ab->append(c[j]);
-                }
-            }
+            } // end if len > 0
             //abAppend(ab, "\x1b[39m", 5);
             ab->append("\x1b[39m"sv);
         }
@@ -1285,7 +1312,7 @@ std::string editorPrompt(const std::string_view prompt, void (*callback)(const s
                 return buf;
             }
         }
-        else if (!iscntrl(c) && c < 128) {
+        else if (!my_is_control(c) && c < 128) {
             //if (buflen == bufsize - 1) {
             //    bufsize *= 2;
             //    buf = (char*)realloc(buf, bufsize);

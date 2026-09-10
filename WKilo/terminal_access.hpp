@@ -1,6 +1,8 @@
 #include <cstdint> // intptr_t
 #include <cstdio> // FILE
 
+#include <string>
+
 #ifndef STDOUT_FILENO
 #define STDOUT_FILENO 1
 #endif
@@ -33,9 +35,9 @@ namespace wkilocpp
 	   - Switched to getc on 5/23/19 */
 
 	   // if typedef doesn't exist (msvc, blah)
-	typedef intptr_t ssize_t;
+	
 
-	ssize_t getline(char** lineptr, size_t* n, FILE* stream);
+	ptrdiff_t getline(FILE* stream, std::string& line);
 
 	// ==========
 

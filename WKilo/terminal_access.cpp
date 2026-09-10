@@ -107,11 +107,12 @@ namespace wkilocpp
        - Switched to getc on 5/23/19 */
 
     
-    ssize_t getline(char** lineptr, size_t* n, FILE* stream) {
+    ptrdiff_t getline(FILE* stream, std::string& line) 
+    {
         size_t pos;
         int c;
 
-        if (lineptr == NULL || stream == NULL || n == NULL) {
+        if (stream == NULL) {
             errno = EINVAL;
             return -1;
         }
@@ -121,38 +122,22 @@ namespace wkilocpp
             return -1;
         }
 
-        if (*lineptr == NULL) {
-            *lineptr = (char*)malloc(128);
-            if (*lineptr == NULL) {
-                return -1;
-            }
-            *n = 128;
-        }
+        line.clear(); // always clear a line
 
         pos = 0;
         while (c != EOF) {
-            if (pos + 1 >= *n) {
-                size_t new_size = *n + (*n >> 2);
-                if (new_size < 128) {
-                    new_size = 128;
-                }
-                char* new_ptr = (char*)realloc(*lineptr, new_size);
-                if (new_ptr == NULL) {
-                    return -1;
-                }
-                *n = new_size;
-                *lineptr = new_ptr;
-            }
+            
+            line += static_cast<char>(c);
 
-            ((unsigned char*)(*lineptr))[pos++] = c;
+            
             if (c == '\n') {
                 break;
             }
             c = getc(stream);
         }
 
-        (*lineptr)[pos] = '\0';
-        return pos;
+        
+        return 0;
     }
 
     // ==========
