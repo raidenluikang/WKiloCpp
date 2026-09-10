@@ -368,7 +368,7 @@ void editorSelectSyntaxHighlight() {
     }
 }
 
-/*** row operations ***/
+/*** rowList operations ***/
 
 int editorRowCxToRx(erow* row, int cx) {
     int rx = 0;
