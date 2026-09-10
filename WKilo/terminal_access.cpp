@@ -46,6 +46,9 @@ namespace wkilocpp
             {
                 SetConsoleMode(hStdin, *savedConsoleInputMode);
             }
+
+            printf("\nBye!\n");
+            fflush(stdout);
         }
     };
     

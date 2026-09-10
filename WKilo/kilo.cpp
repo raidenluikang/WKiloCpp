@@ -108,6 +108,11 @@ constexpr int HL_HIGHLIGHT_NUMBERS = (1 << 0);
 constexpr int HL_HIGHLIGHT_STRINGS = (1 << 1);
 
 /*** data ***/
+enum class EditorKeyProcessState
+{
+    do_continue,
+    do_exit
+};
 
 struct editorSyntax 
 {
@@ -122,10 +127,7 @@ struct editorSyntax
 
 struct editorRow 
 {
-    int idx;
-    //int size;
-    //int rsize;
-    //char* chars;
+    //int idx;
     std::string chars;
     std::string render;
     std::vector<unsigned char> hl;
@@ -136,7 +138,13 @@ struct editorRow
     //@TODO: rename it to render_size
     size_t rsize() const noexcept { return render.size(); }
 
+    size_t rowCxToRx(size_t cx) const;
+
+    size_t rowRxToCx(size_t rx) const;
+
 };
+
+
 
 struct editorStatusMessage
 {
@@ -215,7 +223,7 @@ constexpr  std::array<editorSyntax, 1> HLDB = {
 
 struct abuf; //forward declaration.
 
-class TerminalExitException {};
+
 
 /*** terminal ***/
 template <typename C >  concept TerminalCallback = std::is_invocable_v<C, const std::string&, int>;
@@ -255,27 +263,24 @@ struct TerminalEditor
 
     ScreenSize getCursorPosition();
 
-    void updateSyntax(editorRow* row);
+    void updateSyntax(size_t row_index);
 
     static int syntaxToColor(const int hl);
 
     void selectSyntaxHighlight();
 
-    int rowCxToRx(editorRow* row, int cx);
-
-    int rowRxToCx(editorRow* row, int rx);
-
-    void updateRow(editorRow* row);
+    
+    void updateRow(size_t row_index);
 
     void insertRow(size_t at, std::string_view c_view);
 
-    void deleteRow(int at);
+    void deleteRow(size_t at);
 
-    void rowInsertChar(editorRow* row, size_t at, char c);
+    void rowInsertChar(size_t row_index,   size_t at, char c);
 
-    void rowAppendString(editorRow* row, const std::string_view c_view);
+    void rowAppendString(size_t row_index, const std::string_view c_view);
 
-    void rowDeleteChar(editorRow* row, size_t at);
+    void rowDeleteChar(size_t row_index, size_t at);
 
     void insertChar(int c);
 
@@ -285,7 +290,7 @@ struct TerminalEditor
 
     std::string rowsToString();
 
-    void openFile(const char* filename);
+    void openFile(const std::string& filename);
 
     void saveToFile();
 
@@ -314,7 +319,7 @@ struct TerminalEditor
 
     void moveCursor(int key);
 
-    void processKeypress();
+    EditorKeyProcessState processKeypress();
 
     void initEditor();
 
@@ -332,9 +337,11 @@ void TerminalEditor::die(const char* s)
 }
 
 
-int TerminalEditor::readKey() {
-    int nread;
-    char c;
+int TerminalEditor::readKey() 
+{
+    int nread = 0;
+    char c = 0;
+
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) 
     {
         if (nread == -1 && errno != EAGAIN)
@@ -345,15 +352,19 @@ int TerminalEditor::readKey() {
     
     if (c == '\x1b') 
     {
-        char seq[3];
+        char seq[3]{};
 
         if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
         if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
-        if (seq[0] == '[') {
-            if (seq[1] >= '0' && seq[1] <= '9') {
+        if (seq[0] == '[') 
+        {
+            if (seq[1] >= '0' && seq[1] <= '9') 
+            {
                 if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-                if (seq[2] == '~') {
+
+                if (seq[2] == '~') 
+                {
                     switch (seq[1]) {
                     case '1': return HOME_KEY;
                     case '3': return DEL_KEY;
@@ -366,7 +377,8 @@ int TerminalEditor::readKey() {
                 }
             }
             else {
-                switch (seq[1]) {
+                switch (seq[1]) 
+                {
                 case 'A': return ARROW_UP;
                 case 'B': return ARROW_DOWN;
                 case 'C': return ARROW_RIGHT;
@@ -376,7 +388,8 @@ int TerminalEditor::readKey() {
                 }
             }
         }
-        else if (seq[0] == 'O') {
+        else if (seq[0] == 'O') 
+        {
             switch (seq[1]) {
             case 'H': return HOME_KEY;
             case 'F': return END_KEY;
@@ -385,7 +398,8 @@ int TerminalEditor::readKey() {
 
         return '\x1b';
     }
-    else {
+    else 
+    {
         return c;
     }
 }
@@ -448,9 +462,15 @@ ScreenSize TerminalEditor::getCursorPosition()
 /*** syntax highlighting ***/
 
 
-void TerminalEditor::updateSyntax(editorRow* row) {
+void TerminalEditor::updateSyntax(size_t row_index) 
+{
+    if (row_index >= E.rowList.size()) {
+        return;
+    }
 
-    row->hl.assign(row->rsize(), HL_NORMAL);
+    auto& row = E.rowList[row_index];
+
+    row.hl.assign(row.rsize(), HL_NORMAL);
 
     if (!E.syntax.has_value())
     {
@@ -468,40 +488,41 @@ void TerminalEditor::updateSyntax(editorRow* row) {
     
     int in_string = 0;
     
-    bool in_comment = (row->idx > 0 && E.rowList[row->idx - 1].hl_open_comment);
+    bool in_comment = (row_index > 0 && E.rowList[row_index - 1].hl_open_comment);
 
     size_t i = 0;
-    while (i < row->rsize()) 
+    while (i < row.rsize()) 
     {
-        char c = row->render[i];
+        char c = row.render[i];
         
         
 
-        unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
+        unsigned char prev_hl = (i > 0) ? row.hl[i - 1] : HL_NORMAL;
 
         if (scs.length() > 0 && !in_string && !in_comment) {
             
-            std::string_view render_ith = std::string_view(row->render).substr(i);
+            std::string_view render_ith = std::string_view(row.render).substr(i);
+            
             if (render_ith.starts_with(scs) )
             {
-                std::fill(row->hl.begin() + i, row->hl.end(), HL_COMMENT);
-                //memset(&row->hl[i], HL_COMMENT, row->rsize() - i);
+                std::fill(row.hl.begin() + i, row.hl.end(), HL_COMMENT);
+                
                 break;
             }
         }
 
         if (mcs.length() > 0 && mce.length() > 0 && !in_string) {
-            std::string_view render_ith = std::string_view(row->render).substr(i);
+            std::string_view render_ith = std::string_view(row.render).substr(i);
             
             if (in_comment) 
             {
-                row->hl[i] = HL_MLCOMMENT;
+                row.hl[i] = HL_MLCOMMENT;
                 
                 
                 if (render_ith.starts_with(mce) )
                 {
-                    //memset(&row->hl[i], HL_MLCOMMENT, mce.length());
-                    std::fill_n(row->hl.begin() + i, mce.length(), HL_MLCOMMENT);
+                    
+                    std::fill_n(row.hl.begin() + i, mce.length(), HL_MLCOMMENT);
                     i += mce.length();
                     in_comment = false;
                     prev_sep = 1;
@@ -513,12 +534,10 @@ void TerminalEditor::updateSyntax(editorRow* row) {
                     continue;
                 }
             }
-            else 
-                //if (!strncmp(&row->render[i], mcs.data(), mcs.length())) 
-                if ( render_ith.starts_with(mcs) )
+            else  if ( render_ith.starts_with(mcs) )
             {
-                //memset(&row->hl[i], HL_MLCOMMENT, mcs.length());
-                std::fill_n(row->hl.begin() + i, mcs.length(), HL_MLCOMMENT);
+                
+                std::fill_n(row.hl.begin() + i, mcs.length(), HL_MLCOMMENT);
                 i += mcs.length();
                 in_comment = true;
                 continue;
@@ -527,43 +546,51 @@ void TerminalEditor::updateSyntax(editorRow* row) {
 
         if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) {
             if (in_string) {
-                row->hl[i] = HL_STRING;
+                row.hl[i] = HL_STRING;
                 
-                if (c == '\\' && i + 1 < row->rsize() ) 
+                if (c == '\\' && i + 1 < row.rsize() ) 
                 {
-                    row->hl[i + 1] = HL_STRING;
+                    row.hl[i + 1] = HL_STRING;
                     i += 2;
                     continue;
                 }
-                if (c == in_string) in_string = 0;
+                
+                if (c == in_string) 
+                    in_string = 0;
+
                 i++;
                 prev_sep = 1;
                 continue;
             }
             else {
-                if (c == '"' || c == '\'') {
+                if (c == '"' || c == '\'') 
+                {
                     in_string = c;
-                    row->hl[i] = HL_STRING;
+                    row.hl[i] = HL_STRING;
                     i++;
+                
                     continue;
                 }
             }
         }
 
-        if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS) {
+        if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS) 
+        {
+            //@TODO: replace isdigit to constexpr my_is_digit variant.
             if ((isdigit(c) && (prev_sep || prev_hl == HL_NUMBER)) ||
-                (c == '.' && prev_hl == HL_NUMBER)) {
-                row->hl[i] = HL_NUMBER;
+                (c == '.' && prev_hl == HL_NUMBER)) 
+            {
+                row.hl[i] = HL_NUMBER;
                 i++;
                 prev_sep = 0;
                 continue;
             }
         }
 
-        if (prev_sep) {
+        if (prev_sep) 
+        {
             int j;
             for (j = 0; j < (int)keywords.size(); j++) {
-                //int klen = (int)keywords[j].length();
                 
                 std::string_view keyword = keywords[j];
 
@@ -572,7 +599,7 @@ void TerminalEditor::updateSyntax(editorRow* row) {
                     keyword.remove_suffix(1);
 
                 
-                std::string_view render_ith = std::string_view(row->render).substr(i);
+                std::string_view render_ith = std::string_view(row.render).substr(i);
 
                 if ( render_ith == keyword || 
                         (
@@ -581,7 +608,9 @@ void TerminalEditor::updateSyntax(editorRow* row) {
                         ) 
                     ) 
                 {
-                    memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, keyword.length());
+                    unsigned char fill_value = kw2 ? HL_KEYWORD2 : HL_KEYWORD1;
+                    
+                    std::fill_n(row.hl.begin() + i, keyword.length(), fill_value);
                     i += keyword.length();
                     break;
                 }
@@ -598,10 +627,14 @@ void TerminalEditor::updateSyntax(editorRow* row) {
         i++;
     }
 
-    const bool changed = (row->hl_open_comment != in_comment);
-    row->hl_open_comment = in_comment;
-    if (changed && row->idx + 1 < E.numrows())
-        updateSyntax(&E.rowList[row->idx + 1]);
+    const bool changed = (row.hl_open_comment != in_comment);
+
+    row.hl_open_comment = in_comment;
+
+    if (changed && row_index + 1 < E.numrows())
+    {
+        updateSyntax(row_index + 1);
+    }
 }
 
 int TerminalEditor::syntaxToColor(const int hl) 
@@ -649,8 +682,10 @@ void TerminalEditor::selectSyntaxHighlight()
             {
 
                 E.syntax = s;
-                for (editorRow& row : E.rowList) {
-                    updateSyntax(&row);
+                
+                for (size_t index = 0; index != E.rowList.size(); index++) 
+                {
+                    updateSyntax(index);
                 }
 
                 return;
@@ -661,56 +696,79 @@ void TerminalEditor::selectSyntaxHighlight()
 
 /*** rowList operations ***/
 
-int TerminalEditor::rowCxToRx(editorRow* row, int cx) {
-    int rx = 0;
-    int j;
-    for (j = 0; j < cx; j++) {
-        if (row->chars[j] == '\t')
-            rx += (KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP);
-        rx++;
-    }
-    return rx;
+size_t editorRow::rowCxToRx(size_t cx) const
+{
+    return std::accumulate(chars.begin(), chars.begin() + std::min(cx, chars.size()), size_t{0},
+        [](size_t rx, char c) 
+        {
+            return c == '\t' ? (rx / KILO_TAB_STOP + 1) * KILO_TAB_STOP : rx + 1;
+        });
+
+
+
+    //size_t rx = 0;
+    //
+    //for (size_t j = 0; j < cx; j++) {
+    //    if (chars[j] == '\t')
+    //        rx += (KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP);
+    //    rx++;
+    //}
+    //return rx;
 }
 
-int TerminalEditor::rowRxToCx(editorRow* row, int rx) {
-    int cur_rx = 0;
-    int cx;
-    for (cx = 0; cx < row->size(); cx++) {
-        
-        if (row->chars[cx] == '\t')
-            cur_rx += (KILO_TAB_STOP - 1) - (cur_rx % KILO_TAB_STOP);
+size_t editorRow::rowRxToCx(size_t rx) const
+{
+    size_t cur_rx = 0;
     
-        cur_rx++;
+    for (size_t cx = 0; cx < this->size(); cx++) 
+    {
+        const char c = chars[cx];
 
-        if (cur_rx > rx) 
+        cur_rx =  (c == '\t') ? (cur_rx / KILO_TAB_STOP + 1) * KILO_TAB_STOP : cur_rx + 1;
+
+        //if (chars[cx] == '\t')
+        //    cur_rx += (KILO_TAB_STOP - 1) - (cur_rx % KILO_TAB_STOP);
+    
+        //cur_rx++;
+
+        if (cur_rx > rx)
+        {
             return cx;
+        }
     }
 
-    return cx;
+    return this->size();
 }
 
-void TerminalEditor::updateRow(editorRow* row) {
+
+void TerminalEditor::updateRow(size_t row_index) 
+{
+    if (row_index >= E.rowList.size()) {
+        return;
+    }
+
+    auto& row = E.rowList[row_index];
     
-    const ptrdiff_t tabs = std::count(row->chars.cbegin(), row->chars.cend(), '\t');
+    const ptrdiff_t tabs = std::count(row.chars.cbegin(), row.chars.cend(), '\t');
 
     //@NOTE: this is a hack, for full destroy allocated memory of row->render.
-    std::string{}.swap( row->render );
+    std::string{}.swap( row.render );
 
     
-    for (size_t j = 0; j < row->size(); j++) {
-        if (row->chars[j] == '\t') {
-            row->render += ' ';
-            while (row->rsize() % KILO_TAB_STOP != 0)
+    for (size_t j = 0; j < row.size(); j++) {
+        if (row.chars[j] == '\t') {
+            row.render += ' ';
+            while (row.rsize() % KILO_TAB_STOP != 0)
             {
-                row->render += ' ';
+                row.render += ' ';
             }
         }
         else {
-            row->render  += row->chars[j];
+            row.render  += row.chars[j];
         }
     }
 
-    updateSyntax(row);
+    updateSyntax(row_index);
 }
 
 void TerminalEditor::insertRow(size_t at, std::string_view c_view ) 
@@ -722,84 +780,103 @@ void TerminalEditor::insertRow(size_t at, std::string_view c_view )
 
     E.rowList.insert(std::next(E.rowList.begin() , at), editorRow{});
     
-    for (size_t j = at + 1; j < E.numrows(); j++) {
-        E.rowList[j].idx++;
-    }
+    //for (size_t j = at + 1; j < E.numrows(); j++) {
+    //    E.rowList[j].idx++;
+    //}
 
-    E.rowList[at].idx = (int)at;
+    //E.rowList[at].idx = (int)at;
 
     E.rowList[at].chars.assign(c_view);
     
     E.rowList[at].hl_open_comment = false;
     
-    updateRow(&E.rowList[at]);
+    updateRow(at);
 
     E.dirty++;
 }
 
 
-void TerminalEditor::deleteRow(int at) 
+void TerminalEditor::deleteRow(size_t at) 
 {
-    if (at < 0 || at >= E.numrows())
+    if (at >= E.numrows())
     {
         return;
     }
 
     E.rowList.erase( std::next(E.rowList.begin(), at) );
     
-    for (size_t j = at; j < E.numrows(); j++)
-    {
-        E.rowList[j].idx--;
-    }
+    //for (size_t j = at; j < E.numrows(); j++)
+    //{
+    //    E.rowList[j].idx--;
+    //}
 
     E.dirty++;
 }
 
-void TerminalEditor::rowInsertChar(editorRow* row, size_t at, char c) 
+void TerminalEditor::rowInsertChar(size_t row_index, size_t at, char c) 
 {
-    if (at > row->size())
-    {
-        at = row->size();
-    }
-
-    row->chars.insert(at, 1, c);
-    updateRow(row);
-    E.dirty++;
-}
-
-void TerminalEditor::rowAppendString(editorRow* row, const std::string_view c_view) 
-{
-    row->chars.append(c_view.data(), c_view.size());
-    updateRow(row);
-    E.dirty++;
-}
-
-void TerminalEditor::rowDeleteChar(editorRow* row, size_t at) 
-{
-    if ( at >= row->size() ) 
+    if (row_index >= E.rowList.size())
     {
         return;
     }
     
-    row->chars.erase(std::next(row->chars.begin(), at));
+    auto& row = E.rowList[row_index];
     
-    //@NOTE: some optimization for memory usage
-    if (row->chars.capacity() / 2 >= row->chars.size()) {
-        row->chars.shrink_to_fit();
+    if (at > row.size())
+    {
+        at = row.size();
     }
 
-    updateRow(row);
+    row.chars.insert(at, 1, c);
+    updateRow(row_index);
+    E.dirty++;
+}
+
+void TerminalEditor::rowAppendString(size_t row_index, const std::string_view c_view) 
+{
+    if (row_index >= E.rowList.size()) {
+        return;
+    }
+    auto& row = E.rowList[row_index];
+    row.chars.append(c_view.data(), c_view.size());
+    updateRow(row_index);
+    E.dirty++;
+}
+
+void TerminalEditor::rowDeleteChar(size_t row_index, size_t at) 
+{
+    if (row_index >= E.rowList.size())
+    {
+        return;
+    }
+    auto& row = E.rowList[row_index];
+    if ( at >= row.size() ) 
+    {
+        return;
+    }
+    
+    row.chars.erase(std::next(row.chars.begin(), at));
+    
+    //@NOTE: some optimization for memory usage
+    if (row.chars.capacity() / 2 >= row.chars.size()) {
+        row.chars.shrink_to_fit();
+    }
+
+    updateRow( row_index);
     E.dirty++;
 }
 
 /*** editor operations ***/
 
-void TerminalEditor::insertChar(int c) {
+void TerminalEditor::insertChar(int c) 
+{
     if (E.cy == E.numrows()) 
     {
         insertRow(E.numrows(), "");
     }
-    rowInsertChar(&E.rowList[E.cy], E.cx, c);
+    
+    size_t row_index = E.cy;
+    rowInsertChar(row_index, E.cx, c);
     E.cx++;
 }
 
@@ -809,6 +886,7 @@ void TerminalEditor::insertNewline() {
     }
     else  {
         editorRow* row = &E.rowList[E.cy];
+        
 
         //TODO: think about when E.cx == row->size() case.
         if (std::cmp_less(E.cx, row->size())) 
@@ -818,13 +896,16 @@ void TerminalEditor::insertNewline() {
             row = &E.rowList[E.cy];
             row->chars.resize(E.cx);
 
-            updateRow(row);
+            size_t row_index = E.cy;
+            updateRow(row_index);
         }
         else if (std::cmp_equal(E.cx, row->size()))
         {
             insertRow(E.cy + 1, "");//empty string will be added
             row = &E.rowList[E.cy];
-            updateRow(row);
+
+            size_t row_index = E.cy;
+            updateRow(row_index);
         }
     }
     E.cy++;
@@ -853,17 +934,22 @@ void TerminalEditor::deleteChar()
     
     
 
-    editorRow* row = &E.rowList[E.cy];
+    
+    
     
     if (E.cx > 0) 
     {
-        rowDeleteChar(row, E.cx - 1);
+        size_t row_index = E.cy;
+        rowDeleteChar(row_index, E.cx - 1);
         E.cx--;
     }
-    else 
+    else if (E.cy > 0)
     {
-        E.cx = static_cast< int > ( E.rowList[E.cy - 1].size() ) ;
-        rowAppendString(&E.rowList[E.cy - 1], row->chars);
+        editorRow& cur_row = E.rowList[E.cy];
+
+        size_t prev_row_index = E.cy - 1;
+        E.cx = static_cast< int > ( E.rowList[prev_row_index].size() ) ;
+        rowAppendString(prev_row_index,  cur_row.chars);
         deleteRow(E.cy);
         E.cy--;
     }
@@ -888,7 +974,7 @@ std::string TerminalEditor::rowsToString()
     return buf;
 }
 
-void TerminalEditor::openFile(const char* filename) {
+void TerminalEditor::openFile(const std::string& filename) {
     
     E.filename = filename;
 
@@ -993,23 +1079,23 @@ void TerminalEditor::findCallback(const std::string& query, int key) {
         else if (current == E.numrows()) 
             current = 0;
 
-        editorRow* row = &E.rowList[current];
+        editorRow& row = E.rowList[current];
         
-        size_t match_pos = row->render.find(query);
+        size_t match_pos = row.render.find(query);
 
         if (match_pos != std::string::npos) 
         {
             last_match = current;
             E.cy = current;
-            E.cx = rowRxToCx(row, (int)(match_pos) );
+            E.cx = (int)row.rowRxToCx(match_pos);
             E.rowoff = (int)E.numrows();
 
             saved_hl_line = current;
             
-            saved_hl = row->hl; // copy it and save.
+            saved_hl = row.hl; // copy it and save.
 
             
-            std::fill_n(row->hl.begin() + match_pos, query.length(), HL_MATCH);
+            std::fill_n(row.hl.begin() + match_pos, query.length(), HL_MATCH);
             break;
         }
     }
@@ -1064,19 +1150,26 @@ void TerminalEditor::scroll() {
     
     if (E.cy < E.numrows()) 
     {
-        E.rx = rowCxToRx(&E.rowList[E.cy], E.cx);
+        E.rx = (int)E.rowList[E.cy].rowCxToRx(E.cx);
     }
 
-    if (E.cy < E.rowoff) {
+    if (E.cy < E.rowoff) 
+    {
         E.rowoff = E.cy;
     }
-    if (E.cy >= E.rowoff + E.screenSize.rows) {
+    
+    if (E.cy >= E.rowoff + E.screenSize.rows) 
+    {
         E.rowoff = E.cy - E.screenSize.rows + 1;
     }
-    if (E.rx < E.coloff) {
+    
+    if (E.rx < E.coloff) 
+    {
         E.coloff = E.rx;
     }
-    if (E.rx >= E.coloff + E.screenSize.cols) {
+
+    if (E.rx >= E.coloff + E.screenSize.cols) 
+    {
         E.coloff = E.rx - E.screenSize.cols + 1;
     }
 }
@@ -1280,7 +1373,8 @@ std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback c
 
         const int c = readKey();
         
-        if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
+        if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) 
+        {
             //if (buflen != 0) 
             //    buf[--buflen] = '\0';
 
@@ -1291,19 +1385,18 @@ std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback c
             }
         }
         else if (c == '\x1b') {
-            //editorSetStatusMessage("");
             E.statusMessage.setMessage("");
-            
             
             callback(buf, c);
 
-            //free(buf);
             return "";
         }
-        else if (c == '\r') {
-            if (!buf.empty()) {
-                //editorSetStatusMessage("");
-                E.statusMessage.setMessage("");
+        else if (c == '\r') 
+        {
+            
+            if (!buf.empty()) 
+            {
+               E.statusMessage.setMessage("");
                 
                callback(buf, c);
 
@@ -1311,13 +1404,6 @@ std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback c
             }
         }
         else if (!my_is_control(c) && c < 128) {
-            //if (buflen == bufsize - 1) {
-            //    bufsize *= 2;
-            //    buf = (char*)realloc(buf, bufsize);
-            //}
-            //buf[buflen++] = c;
-            //buf[buflen] = '\0';
-
             buf += static_cast<char>(c);
         }
 
@@ -1371,7 +1457,7 @@ void TerminalEditor::moveCursor(int key) {
     }
 }
 
-void TerminalEditor::processKeypress() {
+EditorKeyProcessState TerminalEditor::processKeypress() {
 
     using namespace std::string_view_literals;
 
@@ -1388,13 +1474,14 @@ void TerminalEditor::processKeypress() {
             E.statusMessage.setMessage(std::format("WARNING!!! File has unsaved changes. "
                 "Press Ctrl-Q {} more times to quit.", quit_times));
             quit_times--;
-            return;
+            return EditorKeyProcessState::do_continue;
         }
         
         write(STDOUT_FILENO, "\x1b[2J"sv);
         write(STDOUT_FILENO, "\x1b[H"sv);
 
-        throw TerminalExitException{};
+        return EditorKeyProcessState::do_exit;
+        
         break;
 
     case CTRL_KEY('s'):
@@ -1465,7 +1552,10 @@ void TerminalEditor::processKeypress() {
     }
 
     quit_times = KILO_QUIT_TIMES;
+
+    return EditorKeyProcessState::do_continue;
 }
+
 
 /*** init ***/
 editorConfig::editorConfig() 
@@ -1529,15 +1619,26 @@ int main(int argc, char* argv[])
 
         terminalEditor.E.statusMessage.setMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
+        using State = wkilocpp::EditorKeyProcessState;
+
         while (true)
         {
             terminalEditor.refreshScreen();
-            terminalEditor.processKeypress();
+            
+            State state = terminalEditor.processKeypress();
+            
+            switch (state) {
+            case State::do_continue:
+                //continue
+                break;
+            case State::do_exit:
+                //exit
+                return 0;
+            //for future case other states...
+            }
         }
     }
-    catch ([[maybe_unused]] const wkilocpp::TerminalExitException& exitException) {
-        std::cerr << "\nBye!\n" << std::endl;
-    }
+    
     catch (const std::exception& exception) 
     {
         std::cerr << exception.what() << std::endl;
