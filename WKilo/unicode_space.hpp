@@ -40,4 +40,23 @@ namespace unicode {
     static_assert(!is_control(U'A'));
     static_assert(!is_control(U' '));    // пробел — НЕ control (это как раз isspace)
 
+    constexpr bool is_digit(char32_t c) noexcept
+    {
+        return (c >= U'0' && c <= U'9');
+    }
+    
+    static_assert(is_digit(U'0'));
+    static_assert(is_digit(U'1'));
+    static_assert(is_digit(U'2'));
+    static_assert(is_digit(U'3'));
+    static_assert(is_digit(U'4'));
+    static_assert(is_digit(U'5'));
+    static_assert(is_digit(U'6'));
+    static_assert(is_digit(U'7'));
+    static_assert(is_digit(U'8'));
+    static_assert(is_digit(U'9'));
+
+    static_assert(!is_digit(U'A'));
+    static_assert(!is_digit(U'!'));
+
 } // namespace unicode
