@@ -170,13 +170,13 @@ namespace wkilocpp
         return pwcs;
     }
 
-    int yk_io_writefile(const char* fpath, char* data, int len) {
+    int yk_io_writefile(const char* fpath, const char* data, size_t len) {
         wchar_t* wpath = yk_utf8_to_utf16_null_terminated(fpath);
         if (wpath == NULL) {
             return -1;
         }
 #if defined(_MSC_VER)// MSVC
-        FILE* file;
+        FILE* file = nullptr;
         errno_t openerr = _wfopen_s(&file, wpath, L"wb+");
         if (0 != openerr) {
             if (NULL != file) {
@@ -185,9 +185,13 @@ namespace wkilocpp
             free(wpath);
             return -1;
         }
+        if (file == nullptr) {
+            free(wpath);
+            return -1;
+        }
 #else // GCC, MingW, etc
         FILE* file = _wfopen(wpath, L"wb+");
-        if (file == NULL) {
+        if (file == nullptr) {
             free(wpath);
             return -1;
         }

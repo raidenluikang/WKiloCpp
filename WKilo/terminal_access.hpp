@@ -40,5 +40,5 @@ namespace wkilocpp
 	// ==========
 
 	wchar_t* yk_utf8_to_utf16_null_terminated(const char* str);
-	int yk_io_writefile(const char* fpath, char* data, int len);
+	int yk_io_writefile(const char* fpath, const char* data, size_t len);
 } // wkilocpp
