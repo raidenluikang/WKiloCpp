@@ -40,11 +40,13 @@ namespace wkilocpp
             if (savedConsoleOutputMode.has_value())
             {
                 SetConsoleMode(hStdout, *savedConsoleOutputMode);
+                savedConsoleOutputMode = std::nullopt;
             }
 
             if (savedConsoleInputMode.has_value())
             {
                 SetConsoleMode(hStdin, *savedConsoleInputMode);
+                savedConsoleInputMode = std::nullopt;
             }
 
             printf("\nBye!\n");
@@ -54,37 +56,7 @@ namespace wkilocpp
     
     ScreenHandle::ScreenHandle() 
         : d_(new impl{})
-    {}
-
-    ScreenHandle::~ScreenHandle()
     {
-        if (d_ != nullptr) 
-        {
-            d_->disableRawMode();
-            delete d_;
-        }
-    }
-
-        
-    ScreenHandle::ScreenHandle(ScreenHandle&& other) noexcept
-        : d_(std::exchange(other.d_, nullptr))
-    {
-    }
-    
-    ScreenHandle& ScreenHandle::operator = (ScreenHandle&& other) noexcept
-    {
-        std::swap(d_, other.d_);
-        return *this;
-    }
-
-    void ScreenHandle::enableRawMode(void)
-    {
-        if (d_ == nullptr) 
-        {
-            throw std::invalid_argument("ScreenHandle already moved, do not use it!");
-        }
-
-        // Get handles for stdin and stdout
         d_->hStdin = GetStdHandle(STD_INPUT_HANDLE);
 
         if (d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL)
@@ -98,7 +70,20 @@ namespace wkilocpp
         {
             throw std::system_error(GetLastError(), std::system_category(), "GetStdHandle(STD_OUTPUT_HANDLE) failed");
         }
+    }
 
+    ScreenHandle::~ScreenHandle()
+    {
+        
+        d_->disableRawMode();
+        delete d_;
+        
+    }
+
+    
+    void ScreenHandle::enableRawMode(void)
+    {
+        // Get handles for stdin and stdout
         // Set console to "raw" mode
         DWORD outputMode = 0;
         if (!GetConsoleMode(d_->hStdout, &outputMode))
@@ -190,12 +175,6 @@ namespace wkilocpp
 
     int ScreenHandle::winRead(int ignored, char* c, int toread) 
     {
-        if (d_ == nullptr || d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL) 
-        {
-            //invalid state
-            return -1;
-        }
-
         DWORD read = 0;
         BOOL bOk = ReadConsoleA(d_->hStdin, c, toread, &read, NULL);
         
@@ -209,11 +188,6 @@ namespace wkilocpp
 
     int ScreenHandle::winWrite(int ignored, const char* buf, size_t length) 
     {
-        if (d_ == nullptr || d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL) {
-            //invalid state
-            return -1;
-        }
-
         DWORD wrote = 0;
         BOOL bOk = WriteConsoleA(d_->hStdout, buf, static_cast<DWORD>( length), &wrote, NULL);
         

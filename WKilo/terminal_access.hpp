@@ -28,8 +28,6 @@ namespace wkilocpp
 		ScreenHandle(const ScreenHandle&) = delete;
 		ScreenHandle& operator = (const ScreenHandle&) = delete;
 
-		ScreenHandle(ScreenHandle&&) noexcept;
-		ScreenHandle& operator = (ScreenHandle&&) noexcept;
 
 		void enableRawMode(void);
 
