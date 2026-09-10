@@ -1,4 +1,4 @@
-#include <cerrno>
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -7,6 +7,9 @@
 #include <filesystem>
 #include <fstream>
 #include <string_view>
+#include <optional>
+#include <utility>
+#include <algorithm>
 
 //#include <SDKDDKVer.h>   // сам выставит _WIN32_WINNT под макс. доступную версию
 
@@ -19,93 +22,129 @@
 
 
 
-static HANDLE hStdin = NULL;
-static HANDLE hStdout = NULL;
-static int savedConsoleOutputModeIsValid = 0;
-static DWORD savedConsoleOutputMode = 0;
-static int savedConsoleInputModeIsValid = 0;
-static DWORD savedConsoleInputMode = 0;
-
-
-static void disableRawMode(void) {
-    printf("\x1b[0m");
-    fflush(stdout);
-
-    if (savedConsoleOutputModeIsValid)
-        SetConsoleMode(hStdout, savedConsoleOutputMode);
-    if (savedConsoleInputModeIsValid)
-        SetConsoleMode(hStdin, savedConsoleInputMode);
-}
-
 namespace wkilocpp
 {
+    struct ScreenHandle::impl
+    {
+        HANDLE hStdin;
+        HANDLE hStdout;
 
-    int enableRawMode(void) {
-        // Make sure the console state will be returned to its original state
-        // when this program ends
-        atexit(disableRawMode);
+        std::optional<DWORD> savedConsoleOutputMode;
+        std::optional<DWORD> savedConsoleInputMode;
+
+        void disableRawMode()
+        {
+            printf("\x1b[0m");
+            fflush(stdout);
+
+            if (savedConsoleOutputMode.has_value())
+            {
+                SetConsoleMode(hStdout, *savedConsoleOutputMode);
+            }
+
+            if (savedConsoleInputMode.has_value())
+            {
+                SetConsoleMode(hStdin, *savedConsoleInputMode);
+            }
+        }
+    };
+    
+    ScreenHandle::ScreenHandle() 
+        : d_(new impl{})
+    {}
+
+    ScreenHandle::~ScreenHandle()
+    {
+        if (d_ != nullptr) 
+        {
+            d_->disableRawMode();
+            delete d_;
+        }
+    }
+
+        
+    ScreenHandle::ScreenHandle(ScreenHandle&& other) noexcept
+        : d_(std::exchange(other.d_, nullptr))
+    {
+    }
+    
+    ScreenHandle& ScreenHandle::operator = (ScreenHandle&& other) noexcept
+    {
+        std::swap(d_, other.d_);
+        return *this;
+    }
+
+    void ScreenHandle::enableRawMode(void)
+    {
+        if (d_ == nullptr) 
+        {
+            throw std::invalid_argument("ScreenHandle already moved, do not use it!");
+        }
 
         // Get handles for stdin and stdout
-        hStdin = GetStdHandle(STD_INPUT_HANDLE);
-        
-        if (hStdin == INVALID_HANDLE_VALUE || hStdin == NULL)
+        d_->hStdin = GetStdHandle(STD_INPUT_HANDLE);
+
+        if (d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL)
         {
             throw std::system_error(GetLastError(), std::system_category(), "GetStdHandle(STD_INPUT_HANDLE) failed");
         }
 
-        hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+        d_->hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
 
-        if (hStdout == INVALID_HANDLE_VALUE || hStdout == NULL)
+        if (d_->hStdout == INVALID_HANDLE_VALUE || d_->hStdout == NULL)
         {
             throw std::system_error(GetLastError(), std::system_category(), "GetStdHandle(STD_OUTPUT_HANDLE) failed");
         }
 
         // Set console to "raw" mode
-
-        if (!GetConsoleMode(hStdout, &savedConsoleOutputMode))
+        DWORD outputMode = 0;
+        if (!GetConsoleMode(d_->hStdout, &outputMode))
         {
             throw std::system_error(GetLastError(), std::system_category(), "GetConsoleMode(hStdout) failed");
         }
 
-        savedConsoleOutputModeIsValid = 1;
-        DWORD newOutputMode = savedConsoleOutputMode;
+        d_->savedConsoleOutputMode = outputMode;
+        DWORD newOutputMode = outputMode;
         newOutputMode |= ENABLE_PROCESSED_OUTPUT;
         newOutputMode &= ~ENABLE_WRAP_AT_EOL_OUTPUT;
         newOutputMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-        
-        if (!SetConsoleMode(hStdout, newOutputMode))
+
+        if (!SetConsoleMode(d_->hStdout, newOutputMode))
         {
             throw std::system_error(GetLastError(), std::system_category(), "SetConsoleMode(hStdout, newOutputMode) failed");
         }
-        
-        if (!GetConsoleMode(hStdin, &savedConsoleInputMode))
+
+
+        //-----------------------------------------------------------
+        DWORD inputMode = 0;
+        if (!GetConsoleMode(d_->hStdin, &inputMode))
         {
             throw std::system_error(GetLastError(), std::system_category(), "GetConsoleMode(hStdin) failed");
         }
 
-        savedConsoleInputModeIsValid = 1;
-        DWORD newInputMode = savedConsoleInputMode;
+        d_->savedConsoleInputMode = inputMode;
+        DWORD newInputMode = inputMode;
         newInputMode &= ~ENABLE_ECHO_INPUT;
         newInputMode &= ~ENABLE_LINE_INPUT;
         newInputMode &= ~ENABLE_PROCESSED_INPUT;
         newInputMode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
-        
-        if (!SetConsoleMode(hStdin, newInputMode))
+
+        if (!SetConsoleMode(d_->hStdin, newInputMode))
         {
             throw std::system_error(GetLastError(), std::system_category(), "SetConsoleMode(hStdin, newInputMode) failed");
         }
-
-        return 0;
     }
 
+    
 
+    
     // https://stackoverflow.com/questions/6812224/getting-terminal-size-in-c-for-windows
-    ScreenSize getWindowSize() 
+    ScreenSize ScreenHandle::getWindowSize() 
     {
         CONSOLE_SCREEN_BUFFER_INFO csbi{};
      
         // https://learn.microsoft.com/en-us/windows/console/getstdhandle
-        HANDLE stdHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+        HANDLE const stdHandle = GetStdHandle(STD_OUTPUT_HANDLE);
         
         if (stdHandle == INVALID_HANDLE_VALUE || stdHandle == NULL) 
         {
@@ -125,7 +164,7 @@ namespace wkilocpp
 
 
         //https://learn.microsoft.com/en-us/windows/console/getconsolescreenbufferinfo
-        BOOL bOk = GetConsoleScreenBufferInfo(stdHandle, &csbi);
+        BOOL const bOk = GetConsoleScreenBufferInfo(stdHandle, &csbi);
         
         if (!bOk) 
         {
@@ -146,104 +185,47 @@ namespace wkilocpp
     //  instead the C library functions
     //  below stuff works as expected.
 
-    int winRead(int ignored, char* c, int toread) {
-        unsigned long read = 0;
-        ReadConsoleA(hStdin, c, toread, &read, NULL);
+    int ScreenHandle::read(int ignored, char* c, int toread) 
+    {
+        if (d_ == nullptr || d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL) 
+        {
+            //invalid state
+            return -1;
+        }
+
+        DWORD read = 0;
+        BOOL bOk = ReadConsoleA(d_->hStdin, c, toread, &read, NULL);
+        
+        if (!bOk) 
+        {
+            return -1;
+        }
+        
         return (int)read;
     }
 
-    int winWrite(int ignored, const char* buf, size_t length) {
-        unsigned long wrote = 0;
-        WriteConsoleA(hStdout, buf, static_cast<DWORD>( length), &wrote, NULL);
+    int ScreenHandle::write(int ignored, const char* buf, size_t length) 
+    {
+        if (d_ == nullptr || d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL) {
+            //invalid state
+            return -1;
+        }
+
+        DWORD wrote = 0;
+        BOOL bOk = WriteConsoleA(d_->hStdout, buf, static_cast<DWORD>( length), &wrote, NULL);
+        
+        if (!bOk) 
+        {
+            return -1;
+        }
+        
         return (int)wrote;
     }
 
-    ////  https://stackoverflow.com/a/47229318/1355145
-
-    ///* The original code is public domain -- Will Hartung 4/9/09 */
-    ///* Modifications, public domain as well, by Antti Haapala, 11/10/17
-    //   - Switched to getc on 5/23/19 */
-
-    //
-    //ptrdiff_t getline(FILE* stream, std::string& line) 
-    //{
-    //    size_t pos;
-    //    int c;
-
-    //    if (stream == NULL) {
-    //        errno = EINVAL;
-    //        return -1;
-    //    }
-
-    //    c = getc(stream);
-    //    if (c == EOF) {
-    //        return -1;
-    //    }
-
-    //    line.clear(); // always clear a line
-
-    //    pos = 0;
-    //    while (c != EOF) {
-    //        
-    //        line += static_cast<char>(c);
-
-    //        
-    //        if (c == '\n') {
-    //            break;
-    //        }
-    //        c = getc(stream);
-    //    }
-
-    //    
-    //    return 0;
-    //}
-
-    // ==========
-
-//    static wchar_t* yk_utf8_to_utf16_null_terminated(const char* str) {
-//        if (!str) return NULL;
-//        UINT cp = CP_UTF8;
-//        if (strlen(str) >= 3 && str[0] == (char)0xef && str[1] == (char)0xbb &&
-//            str[2] == (char)0xbf)
-//            str += 3;
-//        size_t pwcl = MultiByteToWideChar(cp, 0, str, -1, NULL, 0);
-//        wchar_t* pwcs = (wchar_t*)malloc(sizeof(wchar_t) * (pwcl + 1));
-//        pwcl = MultiByteToWideChar(cp, 0, str, -1, pwcs, static_cast<int>(pwcl + 1));
-//        pwcs[pwcl] = '\0';
-//        return pwcs;
-//    }
-//
-//    int yk_io_writefile(const char* fpath, const char* data, size_t len) {
-//        wchar_t* wpath = yk_utf8_to_utf16_null_terminated(fpath);
-//        if (wpath == NULL) {
-//            return -1;
-//        }
-//#if defined(_MSC_VER)// MSVC
-//        FILE* file = nullptr;
-//        errno_t openerr = _wfopen_s(&file, wpath, L"wb+");
-//        if (0 != openerr) {
-//            if (NULL != file) {
-//                fclose(file);
-//            }
-//            free(wpath);
-//            return -1;
-//        }
-//        if (file == nullptr) {
-//            free(wpath);
-//            return -1;
-//        }
-//#else // GCC, MingW, etc
-//        FILE* file = _wfopen(wpath, L"wb+");
-//        if (file == nullptr) {
-//            free(wpath);
-//            return -1;
-//        }
-//#endif// msvc check
-//        size_t written = fwrite(data, sizeof(char), len, file);
-//        free(wpath);
-//        fclose(file);
-//        return (written == len) ? 0 : -2;
-//    }
+    int winGetLastError() 
+    {
+        return ::GetLastError();
+    }
 
 
     static std::u8string_view to_u8_view(std::string_view fpath) 
