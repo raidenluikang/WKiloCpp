@@ -4,7 +4,7 @@
 #endif 
 
 #include "terminal_access.hpp"
-#include <ctime>
+//#include <ctime>
 //#include <io.h>
 #include <cctype>
 #include <cstdio>
@@ -22,6 +22,7 @@
 #include <functional>
 #include <numeric>
 #include <format>
+#include <chrono>
 
 /*** defines ***/
 
@@ -98,19 +99,26 @@ typedef struct erow {
 
 struct editorStatusMessage
 {
+    using clock_type = std::chrono::high_resolution_clock;
+    using timer_type = clock_type::time_point;
+    using rep_type = clock_type::duration::rep;
+
     std::string message;
-    time_t last_time = 0;
+
+    timer_type last_time{};
 
     
     void setMessage(const std::string& message) 
     {
         this->message = message;
-        this->last_time = ::time(nullptr);
+        this->last_time = clock_type::now();
     }
 
-    int elapsedSeconds() const
+    rep_type elapsedMilliseconds() const
     {
-        return (int)( ::time(nullptr) - last_time ) ;
+        auto now = clock_type::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
+        return elapsed.count();
     }
 };
 
@@ -126,9 +134,8 @@ struct editorConfig {
     int dirty;
     char* filename;
     editorStatusMessage statusmsg;
-    //char statusmsg[80];
-    //time_t statusmsg_time;
     struct editorSyntax* syntax;
+
     // NOTE: See below item is commented out
     //struct termios orig_termios;
 };
@@ -923,7 +930,7 @@ void editorDrawMessageBar(struct abuf* ab)
 
     status_view = status_view.substr(0, static_cast<size_t>(std::max(0, E.screencols)));
     
-    if (!status_view.empty()  && E.statusmsg.elapsedSeconds() < 5)
+    if (!status_view.empty()  && E.statusmsg.elapsedMilliseconds() < 5000 )
     {
         //abAppend(ab, E.statusmsg, msglen);
         ab->append(status_view);
@@ -1153,10 +1160,11 @@ void initEditor() {
     E.dirty = 0;
     E.filename = NULL;
     E.statusmsg.message = "";
-    E.statusmsg.last_time = 0;
+    E.statusmsg.last_time = editorStatusMessage::timer_type::min() ;
     E.syntax = NULL;
 
-    if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
+    if (getWindowSize(&E.screenrows, &E.screencols) == -1) 
+        die("getWindowSize");
     E.screenrows -= 2;
 }
 
