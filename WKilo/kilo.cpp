@@ -116,14 +116,17 @@ struct editorRow
 {
     int idx;
     //int size;
-    int rsize;
+    //int rsize;
     //char* chars;
     std::string chars;
-    char* render;
+    std::string render;
     unsigned char* hl;
     bool hl_open_comment;
 
     size_t size()const noexcept { return chars.size(); }
+
+    //@TODO: rename it to render_size
+    size_t rsize() const noexcept { return render.size(); }
 
 };
 
@@ -314,8 +317,8 @@ int getCursorPosition(int* rows, int* cols) {
 
 
 void editorUpdateSyntax(editorRow* row) {
-    row->hl = (unsigned char*)realloc(row->hl, row->rsize);
-    memset(row->hl, HL_NORMAL, row->rsize);
+    row->hl = (unsigned char*)realloc(row->hl, row->rsize());
+    memset(row->hl, HL_NORMAL, row->rsize());
 
     if (!E.syntax.has_value())
     {
@@ -339,33 +342,50 @@ void editorUpdateSyntax(editorRow* row) {
     bool in_comment = (row->idx > 0 && E.rowList[row->idx - 1].hl_open_comment);
 
     size_t i = 0;
-    while (i < row->rsize) {
+    while (i < row->rsize()) 
+    {
         char c = row->render[i];
+        
+        
+
         unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
 
         if (scs.length() > 0 && !in_string && !in_comment) {
-            if (!strncmp(&row->render[i], scs.data(), scs.length())) {
-                memset(&row->hl[i], HL_COMMENT, row->rsize - i);
+            //if (!strncmp(&row->render[i], scs.data(), scs.length())) 
+            std::string_view render_ith = std::string_view(row->render).substr(i);
+            if (render_ith.starts_with(scs) )
+            {
+                memset(&row->hl[i], HL_COMMENT, row->rsize() - i);
                 break;
             }
         }
 
         if (mcs.length() > 0 && mce.length() > 0 && !in_string) {
-            if (in_comment) {
+            std::string_view render_ith = std::string_view(row->render).substr(i);
+            
+            if (in_comment) 
+            {
                 row->hl[i] = HL_MLCOMMENT;
-                if (!strncmp(&row->render[i], mce.data(), mce.length())) {
+                //if (!strncmp(&row->render[i], mce.data(), mce.length())) 
+                
+                if (render_ith.starts_with(mce) )
+                {
                     memset(&row->hl[i], HL_MLCOMMENT, mce.length());
                     i += mce.length();
                     in_comment = false;
                     prev_sep = 1;
                     continue;
                 }
-                else {
+                else 
+                {
                     i++;
                     continue;
                 }
             }
-            else if (!strncmp(&row->render[i], mcs.data(), mcs.length())) {
+            else 
+                //if (!strncmp(&row->render[i], mcs.data(), mcs.length())) 
+                if ( render_ith.starts_with(mcs) )
+            {
                 memset(&row->hl[i], HL_MLCOMMENT, mcs.length());
                 i += mcs.length();
                 in_comment = true;
@@ -376,7 +396,9 @@ void editorUpdateSyntax(editorRow* row) {
         if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) {
             if (in_string) {
                 row->hl[i] = HL_STRING;
-                if (c == '\\' && i + 1 < row->rsize) {
+                
+                if (c == '\\' && i + 1 < row->rsize() ) 
+                {
                     row->hl[i + 1] = HL_STRING;
                     i += 2;
                     continue;
@@ -409,16 +431,26 @@ void editorUpdateSyntax(editorRow* row) {
         if (prev_sep) {
             int j;
             for (j = 0; j < (int)keywords.size(); j++) {
-                int klen = (int)keywords[j].length();
-                const bool kw2 = keywords[j].ends_with('|');
-                if (kw2) 
-                    klen--;
+                //int klen = (int)keywords[j].length();
+                
+                std::string_view keyword = keywords[j];
 
-                //TODO: remove strncmp and use string_view.compare.
-                if (!strncmp(&row->render[i], keywords[j].data(), klen) &&
-                    is_separator(row->render[i + klen])) {
-                    memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
-                    i += klen;
+                const bool kw2 = keyword.ends_with('|');
+                if (kw2)
+                    keyword.remove_suffix(1);
+
+                
+                std::string_view render_ith = std::string_view(row->render).substr(i);
+
+                if ( render_ith == keyword || 
+                        (
+                            render_ith.starts_with(keyword) &&
+                            is_separator( render_ith[keyword.length() ] ) 
+                        ) 
+                    ) 
+                {
+                    memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, keyword.length());
+                    i += keyword.length();
                     break;
                 }
             }
@@ -543,24 +575,27 @@ void editorUpdateRow(editorRow* row) {
     //    }
     //}
 
-    free(row->render);
-    row->render = (char*)malloc(row->size() + tabs * (KILO_TAB_STOP - 1) + 1);
+    //free(row->render);
+    //row->render = (char*)malloc(row->size() + tabs * (KILO_TAB_STOP - 1) + 1);
+    
+    //@NOTE: this is a hack, for full destroy allocated memory of row->render.
+    std::string{}.swap( row->render );
 
-    int idx = 0;
+    //int idx = 0;
     for (size_t j = 0; j < row->size(); j++) {
         if (row->chars[j] == '\t') {
-            row->render[idx++] = ' ';
-            while (idx % KILO_TAB_STOP != 0)
+            row->render += ' ';
+            while (row->rsize() % KILO_TAB_STOP != 0)
             {
-                row->render[idx++] = ' ';
+                row->render += ' ';
             }
         }
         else {
-            row->render[idx++] = row->chars[j];
+            row->render  += row->chars[j];
         }
     }
-    row->render[idx] = '\0';
-    row->rsize = idx;
+    //row->render[idx] = '\0';
+    //row->rsize = idx;
 
     editorUpdateSyntax(row);
 }
@@ -588,8 +623,10 @@ void editorInsertRow(size_t at, const char* s, size_t len)
     E.rowList[at].chars.assign(s, len);
     //E.rowList[at].chars[len] = '\0';
 
-    E.rowList[at].rsize = 0;
-    E.rowList[at].render = NULL;
+    //@NOTE: render is now a std::string, automatically initailized with empty string.
+    //E.rowList[at].rsize = 0;
+    //E.rowList[at].render = NULL;
+
     E.rowList[at].hl = NULL;
     E.rowList[at].hl_open_comment = false;
     
@@ -600,7 +637,7 @@ void editorInsertRow(size_t at, const char* s, size_t len)
 }
 
 void editorFreeRow(editorRow* row) {
-    free(row->render);
+    //free(row->render);
     //free(row->chars);
     free(row->hl);
 }
@@ -662,6 +699,11 @@ void editorRowDelChar(editorRow* row, size_t at)
     //memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
     //row->size--;
     row->chars.erase(std::next(row->chars.begin(), at));
+    
+    //@NOTE: some optimization for memory usage
+    if (row->chars.capacity() / 2 >= row->chars.size()) {
+        row->chars.shrink_to_fit();
+    }
 
     editorUpdateRow(row);
     E.dirty++;
@@ -832,7 +874,7 @@ void editorFindCallback(const std::string& query, int key) {
     static char* saved_hl = NULL;
 
     if (saved_hl) {
-        memcpy(E.rowList[saved_hl_line].hl, saved_hl, E.rowList[saved_hl_line].rsize);
+        memcpy(E.rowList[saved_hl_line].hl, saved_hl, E.rowList[saved_hl_line].rsize());
         free(saved_hl);
         saved_hl = NULL;
     }
@@ -867,17 +909,20 @@ void editorFindCallback(const std::string& query, int key) {
             current = 0;
 
         editorRow* row = &E.rowList[current];
-        char* match = strstr(row->render, query.c_str());
-        if (match) {
+        //char* match = strstr(row->render, query.c_str());
+        size_t match_pos = row->render.find(query);
+
+        if (match_pos != std::string::npos) 
+        {
             last_match = current;
             E.cy = current;
-            E.cx = editorRowRxToCx(row, (int)(match - row->render) );
+            E.cx = editorRowRxToCx(row, (int)(match_pos) );
             E.rowoff = (int)E.numrows();
 
             saved_hl_line = current;
-            saved_hl = (char*)malloc(row->rsize);
-            memcpy(saved_hl, row->hl, row->rsize);
-            memset(&row->hl[match - row->render], HL_MATCH, /*strlen(query)*/query.length());
+            saved_hl = (char*)malloc(row->rsize());
+            memcpy(saved_hl, row->hl, row->rsize());
+            memset(&row->hl[match_pos], HL_MATCH, /*strlen(query)*/query.length());
             break;
         }
     }
@@ -996,11 +1041,18 @@ void editorDrawRows(struct abuf* ab) {
             }
         }
         else {
-            int len = E.rowList[filerow].rsize - E.coloff;
-            if (len < 0) len = 0;
-            if (len > E.screencols) len = E.screencols;
+            int len = static_cast<int>( E.rowList[filerow].rsize() ) - E.coloff;
+            
+            if (len < 0) 
+                len = 0;
+
+            if (len > E.screencols) 
+                len = E.screencols;
+
             char* c = &E.rowList[filerow].render[E.coloff];
+            
             unsigned char* hl = &E.rowList[filerow].hl[E.coloff];
+            
             int current_color = -1;
             int j;
             for (j = 0; j < len; j++) {
