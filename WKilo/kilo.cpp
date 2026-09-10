@@ -155,12 +155,14 @@ struct editorConfig {
     int coloff = 0;
     int screenrows = 0;
     int screencols = 0;
-    int numrows = 0;
-    editorRow* row = nullptr;
+    //int numrows = 0;
+    std::vector< editorRow > row;
     int dirty = 0;
     std::string filename;
     editorStatusMessage statusmsg{};
     const struct editorSyntax* syntax = nullptr;
+
+    size_t numrows() const noexcept { return row.size(); }
 
     // NOTE: See below item is commented out
     //struct termios orig_termios;
@@ -425,7 +427,7 @@ void editorUpdateSyntax(editorRow* row) {
 
     const bool changed = (row->hl_open_comment != in_comment);
     row->hl_open_comment = in_comment;
-    if (changed && row->idx + 1 < E.numrows)
+    if (changed && row->idx + 1 < E.numrows())
         editorUpdateSyntax(&E.row[row->idx + 1]);
 }
 
@@ -476,9 +478,8 @@ void editorSelectSyntaxHighlight()
             {
 
                 E.syntax = s;
-
-                int filerow;
-                for (filerow = 0; filerow < E.numrows; filerow++) {
+                
+                for (size_t filerow = 0; filerow < E.numrows(); filerow++) {
                     editorUpdateSyntax(&E.row[filerow]);
                 }
 
@@ -539,14 +540,22 @@ void editorUpdateRow(editorRow* row) {
     editorUpdateSyntax(row);
 }
 
-void editorInsertRow(int at, const char* s, size_t len) {
-    if (at < 0 || at > E.numrows) return;
+void editorInsertRow(size_t at, const char* s, size_t len) 
+{
+    if (at > E.numrows())
+    {
+        return;
+    }
 
-    E.row = (editorRow*)realloc(E.row, sizeof(editorRow) * (E.numrows + 1));
-    memmove(&E.row[at + 1], &E.row[at], sizeof(editorRow) * (E.numrows - at));
-    for (int j = at + 1; j <= E.numrows; j++) E.row[j].idx++;
+    //E.row = (editorRow*)realloc(E.row, sizeof(editorRow) * (E.numrows + 1));
+    //memmove(&E.row[at + 1], &E.row[at], sizeof(editorRow) * (E.numrows - at));
+    E.row.insert(std::next(E.row.begin() , at), editorRow{});
+    
+    for (size_t j = at + 1; j < E.numrows(); j++) {
+        E.row[j].idx++;
+    }
 
-    E.row[at].idx = at;
+    E.row[at].idx = (int)at;
 
     E.row[at].size = (int)len;
     E.row[at].chars = (char*)malloc(len + 1);
@@ -557,9 +566,10 @@ void editorInsertRow(int at, const char* s, size_t len) {
     E.row[at].render = NULL;
     E.row[at].hl = NULL;
     E.row[at].hl_open_comment = false;
+    
     editorUpdateRow(&E.row[at]);
 
-    E.numrows++;
+    //E.numrows++;
     E.dirty++;
 }
 
@@ -569,12 +579,23 @@ void editorFreeRow(editorRow* row) {
     free(row->hl);
 }
 
-void editorDelRow(int at) {
-    if (at < 0 || at >= E.numrows) return;
+void editorDelRow(int at) 
+{
+    if (at < 0 || at >= E.numrows())
+    {
+        return;
+    }
+
     editorFreeRow(&E.row[at]);
-    memmove(&E.row[at], &E.row[at + 1], sizeof(editorRow) * (E.numrows - at - 1));
-    for (int j = at; j < E.numrows - 1; j++) E.row[j].idx--;
-    E.numrows--;
+
+    //memmove(&E.row[at], &E.row[at + 1], sizeof(editorRow) * (E.numrows - at - 1));
+    E.row.erase( std::next(E.row.begin(), at) );
+    
+    for (size_t j = at; j < E.numrows(); j++)
+    {
+        E.row[j].idx--;
+    }
+    //E.numrows--;
     E.dirty++;
 }
 
@@ -608,8 +629,9 @@ void editorRowDelChar(editorRow* row, int at) {
 /*** editor operations ***/
 
 void editorInsertChar(int c) {
-    if (E.cy == E.numrows) {
-        editorInsertRow(E.numrows, "", 0);
+    if (E.cy == E.numrows()) 
+    {
+        editorInsertRow(E.numrows(), "", 0);
     }
     editorRowInsertChar(&E.row[E.cy], E.cx, c);
     E.cx++;
@@ -631,9 +653,17 @@ void editorInsertNewline() {
     E.cx = 0;
 }
 
-void editorDelChar() {
-    if (E.cy == E.numrows) return;
-    if (E.cx == 0 && E.cy == 0) return;
+void editorDelChar() 
+{
+    if (E.cy == E.numrows())
+    {
+        return;
+    }
+    
+    if (E.cx == 0 && E.cy == 0)
+    {
+        return;
+    }
 
     editorRow* row = &E.row[E.cy];
     if (E.cx > 0) {
@@ -652,14 +682,19 @@ void editorDelChar() {
 
 char* editorRowsToString(int* buflen) {
     int totlen = 0;
-    int j;
-    for (j = 0; j < E.numrows; j++)
+    
+    for (size_t j = 0; j < E.numrows(); j++)
+    {
         totlen += E.row[j].size + 1;
+    }
+
     *buflen = totlen;
 
     char* buf = (char*)malloc(totlen);
     char* p = buf;
-    for (j = 0; j < E.numrows; j++) {
+    
+    for (size_t j = 0; j < E.numrows(); j++) 
+    {
         memcpy(p, E.row[j].chars, E.row[j].size);
         p += E.row[j].size;
         *p = '\n';
@@ -693,7 +728,7 @@ void editorOpen(const char* filename) {
         while (linelen > 0 && (line[linelen - 1] == '\n' ||
             line[linelen - 1] == '\r'))
             linelen--;
-        editorInsertRow(E.numrows, line, linelen);
+        editorInsertRow(E.numrows(), line, linelen);
     }
     free(line);
     fclose(fp);
@@ -763,10 +798,15 @@ void editorFindCallback(const std::string& query, int key) {
     if (last_match == -1) direction = 1;
     int current = last_match;
     int i;
-    for (i = 0; i < E.numrows; i++) {
+    for (i = 0; i < E.numrows(); i++) {
+        
         current += direction;
-        if (current == -1) current = E.numrows - 1;
-        else if (current == E.numrows) current = 0;
+        
+        if (current == -1) 
+            current = (int)E.numrows() - 1;
+
+        else if (current == E.numrows()) 
+            current = 0;
 
         editorRow* row = &E.row[current];
         char* match = strstr(row->render, query.c_str());
@@ -774,7 +814,7 @@ void editorFindCallback(const std::string& query, int key) {
             last_match = current;
             E.cy = current;
             E.cx = editorRowRxToCx(row, (int)(match - row->render) );
-            E.rowoff = E.numrows;
+            E.rowoff = (int)E.numrows();
 
             saved_hl_line = current;
             saved_hl = (char*)malloc(row->rsize);
@@ -831,7 +871,9 @@ struct abuf
 
 void editorScroll() {
     E.rx = 0;
-    if (E.cy < E.numrows) {
+    
+    if (E.cy < E.numrows()) 
+    {
         E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
     }
 
@@ -855,8 +897,10 @@ void editorDrawRows(struct abuf* ab) {
     int y;
     for (y = 0; y < E.screenrows; y++) {
         int filerow = y + E.rowoff;
-        if (filerow >= E.numrows) {
-            if (E.numrows == 0 && y == E.screenrows / 3) {
+        
+        if (filerow >= E.numrows() ) 
+        {
+            if (E.numrows() == 0 && y == E.screenrows / 3) {
 
                 std::string welcome = std::format("Kilo editor -- version {}", KILO_VERSION);
                 //char welcome[80];
@@ -967,14 +1011,14 @@ void editorDrawStatusBar(struct abuf* ab) {
     //char status[80], rstatus[80];
     std::string status = std::format( "{:.20} - {} lines {}",
         E.filename.empty() ? "[No Name]"s : E.filename,
-        E.numrows,
+        E.numrows(),
         E.dirty ? "(modified)" : "");
 
     //int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
     //    E.filename ? E.filename : "[No Name]", E.numrows,
     //    E.dirty ? "(modified)" : "");
     //
-    std::string rstatus = std::format("{} | {}/{}", E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
+    std::string rstatus = std::format("{} | {}/{}", E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows());
 
     //int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
     //    E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
@@ -1147,7 +1191,7 @@ std::string editorPrompt(const std::string_view prompt, void (*callback)(const s
 }
 
 void editorMoveCursor(int key) {
-    editorRow* row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
+    editorRow* row = (E.cy >= E.numrows() || E.cy < 0) ? nullptr: &E.row[E.cy];
 
     switch (key) {
     case ARROW_LEFT:
@@ -1174,14 +1218,17 @@ void editorMoveCursor(int key) {
         }
         break;
     case ARROW_DOWN:
-        if (E.cy < E.numrows) {
+        if (E.cy < E.numrows()) {
             E.cy++;
         }
         break;
     }
 
-    row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
+    
+    row = (E.cy >= E.numrows() || E.cy < 0) ? nullptr: &E.row[E.cy];
+
     int rowlen = row ? row->size : 0;
+    
     if (E.cx > rowlen) {
         E.cx = rowlen;
     }
@@ -1218,7 +1265,7 @@ void editorProcessKeypress() {
         break;
 
     case END_KEY:
-        if (E.cy < E.numrows)
+        if (E.cy < E.numrows())
             E.cx = E.row[E.cy].size;
         break;
 
@@ -1241,7 +1288,9 @@ void editorProcessKeypress() {
         }
         else if (c == PAGE_DOWN) {
             E.cy = E.rowoff + E.screenrows - 1;
-            if (E.cy > E.numrows) E.cy = E.numrows;
+            if (std::cmp_greater(E.cy,  E.numrows()) ) {
+                E.cy = (int)E.numrows();
+            }
         }
 
         int times = E.screenrows;
@@ -1277,13 +1326,13 @@ void initEditor() {
     E.rx = 0;
     E.rowoff = 0;
     E.coloff = 0;
-    E.numrows = 0;
-    E.row = NULL;
+    //E.numrows = 0;
+    E.row.clear();
     E.dirty = 0;
     E.filename = "";
     E.statusmsg.message = "";
     E.statusmsg.last_time = editorStatusMessage::timer_type::min() ;
-    E.syntax = NULL;
+    E.syntax = nullptr;
     
     E.screencols = 0;
     E.screenrows = 0;
