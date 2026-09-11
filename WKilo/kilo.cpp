@@ -20,7 +20,7 @@
 #include <charconv>
 #include <fstream>
 #include <concepts>
-
+#include <ranges>
 /*** defines ***/
 
 namespace wkilocpp
@@ -127,9 +127,9 @@ struct EditorRow
     //@TODO: rename it to render_size
     size_t rsize() const noexcept { return render.size(); }
 
-    size_t rowCxToRx(size_t cx) const;
+    size_t rowCxToRx(size_t cx) const noexcept;
 
-    size_t rowRxToCx(size_t rx) const;
+    size_t rowRxToCx(size_t rx) const noexcept;
 
 };
 
@@ -152,7 +152,7 @@ struct EditorStatusMessage
         this->last_time = clock_type::now();
     }
 
-    rep_type elapsedMilliseconds() const
+    rep_type elapsedMilliseconds() const noexcept
     {
         auto now = clock_type::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
@@ -211,10 +211,25 @@ constexpr  std::array<EditorSyntax, 1> HLDB = {
 
 
 /*** prototypes ***/
+/*** append buffer ***/
+struct abuf
+{
+    std::string value;
 
-struct abuf; //forward declaration.
+    void append(const std::string_view sview)
+    {
+        value.append(sview.begin(), sview.end());
+    }
 
-
+    void append(const char symbol)
+    {
+        value.append(1, symbol);
+    }
+    void append(const char symbol, size_t count)
+    {
+        value.append(count, symbol);
+    }
+};
 
 /*** terminal ***/
 template <typename C >  
@@ -236,6 +251,9 @@ class TerminalEditor
     std::optional< std::vector< enum EditorHighlight> > saved_hl_ ;
 
     ScreenHandle screenHandle_;
+
+    struct abuf refresh_abuf_;
+
 public:
     explicit TerminalEditor(int argc, char* argv[]);
     ~TerminalEditor();
@@ -268,9 +286,9 @@ private:
     void updateSyntax(size_t row_index);
 
 
-    static int syntaxToColor(const  enum EditorHighlight hl);
+    static constexpr int syntaxToColor(const  enum EditorHighlight hl) noexcept;
 
-    void selectSyntaxHighlight();
+    bool selectSyntaxHighlight();
 
     
     void updateRow(size_t row_index);
@@ -303,11 +321,11 @@ private:
 
     void scroll();
 
-    void drawRows(abuf* ab);
+    void drawRows();
 
-    void drawStatusBar(abuf* ab);
+    void drawStatusBar();
 
-    void drawMessageBar(abuf* ab);
+    void drawMessageBar();
 
     void refreshScreen();
 
@@ -320,8 +338,6 @@ private:
     void moveCursorPageDown(int step);
 
     EditorKeyProcessState processKeypress();
-
-
 };
 
 void TerminalEditor::die(const char* s) 
@@ -692,7 +708,7 @@ void TerminalEditor::updateSyntax(size_t row_index)
     }
 }
 
-int TerminalEditor::syntaxToColor(const enum EditorHighlight hl) 
+constexpr int TerminalEditor::syntaxToColor(const enum EditorHighlight hl) noexcept
 {
     switch (hl) 
     {
@@ -708,14 +724,14 @@ int TerminalEditor::syntaxToColor(const enum EditorHighlight hl)
     }
 }
 
-void TerminalEditor::selectSyntaxHighlight() 
+bool TerminalEditor::selectSyntaxHighlight() 
 {
     
     editor_.syntax = std::nullopt;
     
     if (editor_.filename.empty())
     {
-        return;
+        return false;
     }
 
     
@@ -735,10 +751,10 @@ void TerminalEditor::selectSyntaxHighlight()
         {
             const bool is_ext = filematch.starts_with('.');
 
+            const bool is_matched = (is_ext && ext == filematch) ||
+                (!is_ext && editor_.filename.find(filematch) != std::string::npos);
             
-            if ( (is_ext && ext == filematch) ||
-                (!is_ext && editor_.filename.find(filematch) != std::string::npos)
-                )
+            if ( is_matched )
             {
 
                 editor_.syntax = s;
@@ -749,56 +765,40 @@ void TerminalEditor::selectSyntaxHighlight()
                     updateSyntaxImpl(index);
                 }
 
-                return;
+                return true;
             }
         }
     }
+    return false;
 }
 
 /*** rowList operations ***/
 
-size_t EditorRow::rowCxToRx(size_t cx) const
+size_t EditorRow::rowCxToRx(size_t cx) const noexcept
 {
     return std::accumulate(chars.begin(), chars.begin() + std::min(cx, chars.size()), size_t{0},
         [](size_t rx, char c) 
         {
             return c == '\t' ? (rx / KILO_TAB_STOP + 1) * KILO_TAB_STOP : rx + 1;
         });
-
-
-
-    //size_t rx = 0;
-    //
-    //for (size_t j = 0; j < cx; j++) {
-    //    if (chars[j] == '\t')
-    //        rx += (KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP);
-    //    rx++;
-    //}
-    //return rx;
 }
 
-size_t EditorRow::rowRxToCx(size_t rx) const
+size_t EditorRow::rowRxToCx(size_t rx) const noexcept
 {
     size_t cur_rx = 0;
-    
-    for (size_t cx = 0; cx < this->size(); cx++) 
+    size_t cx = 0;
+    for (const char c : chars)
     {
-        const char c = chars[cx];
-
         cur_rx =  (c == '\t') ? (cur_rx / KILO_TAB_STOP + 1) * KILO_TAB_STOP : cur_rx + 1;
-
-        //if (chars[cx] == '\t')
-        //    cur_rx += (KILO_TAB_STOP - 1) - (cur_rx % KILO_TAB_STOP);
-    
-        //cur_rx++;
 
         if (cur_rx > rx)
         {
             return cx;
         }
+        cx++;
     }
 
-    return this->size();
+    return cx;
 }
 
 
@@ -1199,25 +1199,7 @@ void TerminalEditor::find() {
     }
 }
 
-/*** append buffer ***/
-struct abuf 
-{
-    std::string value;
 
-    void append(const std::string_view sview) 
-    {
-        value.append(sview.begin(), sview.end());
-    }
-    
-    void append(const char symbol) 
-    {
-        value.append(1, symbol);
-    }
-    void append(const char symbol, size_t count)
-    {
-        value.append(count, symbol);
-    }
-};
 
 /*** output ***/
 
@@ -1250,7 +1232,7 @@ void TerminalEditor::scroll() {
     }
 }
 
-void TerminalEditor::drawRows(struct abuf* ab) 
+void TerminalEditor::drawRows() 
 {
     using namespace std::string_view_literals;
 
@@ -1275,21 +1257,21 @@ void TerminalEditor::drawRows(struct abuf* ab)
                 if (padding > 0) 
                 {
         
-                    ab->append('~');
+                    refresh_abuf_.append('~');
                     padding--;
                 }
                 
                 if (padding > 0) 
                 {
-                    ab->append(' ', static_cast<size_t>(padding));
+                    refresh_abuf_.append(' ', static_cast<size_t>(padding));
                 }
                 
-                ab->append(welcome);
+                refresh_abuf_.append(welcome);
             }
             else 
             {
         
-                ab->append('~');
+                refresh_abuf_.append('~');
             }
         }
         else 
@@ -1313,29 +1295,29 @@ void TerminalEditor::drawRows(struct abuf* ab)
                     {
                         const char sym = (cr[ j ] <= 26) ? '@' + cr[ j ] : '?';
         
-                        ab->append("\x1b[7m"sv);
+                        refresh_abuf_.append("\x1b[7m"sv);
 
         
-                        ab->append(sym);
+                        refresh_abuf_.append(sym);
 
 
-                        ab->append("\x1b[m"sv);
+                        refresh_abuf_.append("\x1b[m"sv);
 
                         if (current_color.has_value()) 
                         {
                             std::string buf = std::format("\x1b[{}m", *current_color);
-                            ab->append(buf);
+                            refresh_abuf_.append(buf);
                         }
                     }
                     else if (hl[j] == EditorHighlight::HL_NORMAL) 
                     {
                         if (current_color.has_value()) 
                         {
-                            ab->append("\x1b[39m"sv);
+                            refresh_abuf_.append("\x1b[39m"sv);
                             current_color = std::nullopt;
                         }
         
-                        ab->append(cr[j]);
+                        refresh_abuf_.append(cr[j]);
                     }
                     else 
                     {
@@ -1346,28 +1328,29 @@ void TerminalEditor::drawRows(struct abuf* ab)
                             current_color = color;
                         
                             std::string buf = std::format("\x1b[{}m", color);
-                            ab->append(buf);
+                            refresh_abuf_.append(buf);
                         }
         
-                        ab->append(cr[j]);
+                        refresh_abuf_.append(cr[j]);
                     }
                 }
             } // end if len > 0
         
-            ab->append("\x1b[39m"sv);
+            refresh_abuf_.append("\x1b[39m"sv);
         }
 
         
-        ab->append("\x1b[K"sv);
+        refresh_abuf_.append("\x1b[K"sv);
 
         
-        ab->append("\r\n"sv);
+        refresh_abuf_.append("\r\n"sv);
     }
 }
 
-void TerminalEditor::drawStatusBar(struct abuf* ab) {
+void TerminalEditor::drawStatusBar() {
     using namespace std::literals;
-    ab->append("\x1b[7m"sv);
+    
+    refresh_abuf_.append("\x1b[7m"sv);
 
     std::string status = std::format( "{:.20} - {} lines {}",
         editor_.filename.empty() ? "[No Name]"s : editor_.filename,
@@ -1382,33 +1365,35 @@ void TerminalEditor::drawStatusBar(struct abuf* ab) {
         status.erase(status.begin() + editor_.screenSize.cols, status.end());
     }
     
-    ab->append(status);
+    refresh_abuf_.append(status);
     
     if (status.length() < editor_.screenSize.cols) {
         if (editor_.screenSize.cols - status.length() >= rstatus.length()) {
             size_t space_count = editor_.screenSize.cols - status.length() - rstatus.length();
-            ab->append(' ', space_count);
-            ab->append(rstatus);
+            refresh_abuf_.append(' ', space_count);
+            refresh_abuf_.append(rstatus);
         }
         else {
             //add only spaces
             size_t space_count = editor_.screenSize.cols - status.length();
-            ab->append(' ', space_count);
+            refresh_abuf_.append(' ', space_count);
         }
     }
     
-    ab->append("\x1b[m"sv);
+    
+
+    refresh_abuf_.append("\x1b[m"sv);
 
     
-    ab->append("\r\n"sv);
+    refresh_abuf_.append("\r\n"sv);
 }
 
-void TerminalEditor::drawMessageBar(struct abuf* ab)
+void TerminalEditor::drawMessageBar()
 {
     using namespace std::string_view_literals;
 
     
-    ab->append("\x1b[K"sv);
+    refresh_abuf_.append("\x1b[K"sv);
 
     std::string_view status_view = editor_.statusMessage.message; 
 
@@ -1416,7 +1401,7 @@ void TerminalEditor::drawMessageBar(struct abuf* ab)
     
     if (!status_view.empty()  && editor_.statusMessage.elapsedMilliseconds() < 5000 )
     {
-        ab->append(status_view);
+        refresh_abuf_.append(status_view);
     }
 }
 
@@ -1425,22 +1410,34 @@ void TerminalEditor::refreshScreen() {
 
     scroll();
 
-    struct abuf ab {};
+    /* NOTE: 
+        refresh screen always prints about rows x cols  symbols, so why always re-create a memory
+        for this abuf string.
+        Use previous allocated memory in std::string.
+    */
 
-    ab.append("\x1b[?25l"sv);
-    ab.append("\x1b[H"sv);
+    refresh_abuf_.value.clear(); // clear it. But allocated memory do not deallocated.
 
-    drawRows(&ab);
-    drawStatusBar(&ab);
-    drawMessageBar(&ab);
+    refresh_abuf_.append("\x1b[?25l"sv);
+    refresh_abuf_.append("\x1b[H"sv);
+
+    drawRows();
+    drawStatusBar();
+    drawMessageBar();
 
     std::string buf = std::format("\x1b[{};{}H", (editor_.cy - editor_.rowoff) + 1, (editor_.rx - editor_.coloff) + 1);
     
-    ab.append(buf); 
+    refresh_abuf_.append(buf);
 
-    ab.append("\x1b[?25h"sv);
+    
+    
+    
 
-    writeOutput(ab.value);
+    refresh_abuf_.append("\x1b[?25h"sv);
+
+    writeOutput(refresh_abuf_.value);
+
+    refresh_abuf_.value.clear();//there also clear.
 }
 
 
@@ -1729,14 +1726,14 @@ int TerminalEditor::run()
 
         State state = processKeypress();
 
-        switch (state) {
+        switch (state) 
+        {
         case State::do_continue:
-            //continue
             break;
         case State::do_exit:
-            //exit
             return 0;
-            //for future case other states...
+
+        //for future case other states...
         }
     }
 }
