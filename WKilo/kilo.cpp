@@ -316,6 +316,8 @@ private:
 
 
     void moveCursor(int key);
+    void moveCursorPageUp(int step);
+    void moveCursorPageDown(int step);
 
     EditorKeyProcessState processKeypress();
 
@@ -1248,7 +1250,8 @@ void TerminalEditor::scroll() {
     }
 }
 
-void TerminalEditor::drawRows(struct abuf* ab) {
+void TerminalEditor::drawRows(struct abuf* ab) 
+{
     using namespace std::string_view_literals;
 
     
@@ -1495,14 +1498,26 @@ std::string TerminalEditor::prompt(Callback callback, CallbackForMsg msgCb)
     }
 }
 
+void TerminalEditor::moveCursorPageUp(int step)
+{
+    for (int i = 0; i < step; i++) {
+        moveCursor(ARROW_UP);
+    }
+}
+
+void TerminalEditor::moveCursorPageDown(int step)
+{
+    for (int i = 0; i < step; i++) {
+        moveCursor(ARROW_DOWN);
+    }
+}
+
 void TerminalEditor::moveCursor(int key) 
 {
-    EditorRow* row = (editor_.cy >= editor_.numrows() || editor_.cy < 0) ? nullptr: &editor_.rowList[editor_.cy];
-
     switch (key) 
     {
     case ARROW_LEFT:
-        if (editor_.cx != 0) 
+        if (editor_.cx > 0) 
         {
             editor_.cx--;
         }
@@ -1513,18 +1528,27 @@ void TerminalEditor::moveCursor(int key)
         }
         break;
     case ARROW_RIGHT:
-        if (row && editor_.cx < row->size()) 
+        if (std::cmp_less(editor_.cy , editor_.numrows() ) )
         {
-            editor_.cx++;
+            size_t row_size = editor_.rowList[editor_.cy].size();
+
+            if ( std::cmp_less( editor_.cx , row_size) )
+            {
+                editor_.cx++;
+            }
+            else if ( std::cmp_equal(editor_.cx , row_size) )
+            {
+                editor_.cy++;
+                editor_.cx = 0;
+            }
         }
-        else if (row && editor_.cx == row->size()) 
+        else 
         {
-            editor_.cy++;
-            editor_.cx = 0;
+            //do nothing
         }
         break;
     case ARROW_UP:
-        if (editor_.cy != 0) {
+        if (editor_.cy  > 0) {
             editor_.cy--;
         }
         break;
@@ -1535,13 +1559,14 @@ void TerminalEditor::moveCursor(int key)
         break;
     }
 
-    
-    row = (editor_.cy >= editor_.numrows() || editor_.cy < 0) ? nullptr: &editor_.rowList[editor_.cy];
-
-    int rowlen = row ? (int) row->size() : 0;
-    
-    if (editor_.cx > rowlen) {
-        editor_.cx = rowlen;
+    //accurate cx 
+    if ( std::cmp_less(editor_.cy,  editor_.numrows()) ) 
+    {
+        editor_.cx = std::min<int>(editor_.cx, (int)editor_.rowList[editor_.cy].size());
+    }
+    else 
+    {
+        editor_.cx = 0;
     }
 }
 
@@ -1603,23 +1628,15 @@ EditorKeyProcessState TerminalEditor::processKeypress() {
         break;
 
     case PAGE_UP:
+    {
+        editor_.cy = editor_.rowoff;
+        moveCursorPageUp(editor_.screenSize.rows);
+    }
+    break;
     case PAGE_DOWN:
     {
-        if (c == PAGE_UP) {
-            editor_.cy = editor_.rowoff;
-        }
-        else if (c == PAGE_DOWN) {
-            editor_.cy = editor_.rowoff + editor_.screenSize.rows - 1;
-            if (std::cmp_greater(editor_.cy,  editor_.numrows()) ) {
-                editor_.cy = (int)editor_.numrows();
-            }
-        }
-
-        int times = editor_.screenSize.rows;
-        while (times--) 
-        {
-            moveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
-        }
+        editor_.cy = std::min<int>( editor_.rowoff + editor_.screenSize.rows - 1, (int)editor_.numrows() );
+        moveCursorPageDown(editor_.screenSize.rows);
     }
     break;
 
