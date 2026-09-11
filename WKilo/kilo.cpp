@@ -159,9 +159,9 @@ struct EditorStatusMessage
     timer_type last_time{};
 
     
-    void setMessage(const std::string& message) 
+    void setMessage(std::string message) 
     {
-        this->message = message;
+        this->message = std::move(message);
         this->last_time = clock_type::now();
     }
 
@@ -230,9 +230,13 @@ struct abuf; //forward declaration.
 
 
 /*** terminal ***/
-template <typename C >  concept TerminalCallback = std::is_invocable_v<C, const std::string&, int>;
+template <typename C >  
+concept TerminalCallback = std::invocable<C, const std::string&, int>;
 
-struct TerminalEditor
+template <typename C>
+concept MessageCallback = std::invocable<C, const std::string&> and std::convertible_to<std::invoke_result_t<C, const std::string&>, std::string>;
+
+class TerminalEditor
 {
     EditorConfig editor_;
 
@@ -245,10 +249,13 @@ struct TerminalEditor
     std::optional<std::vector<unsigned char>> saved_hl_ ;
 
     ScreenHandle screenHandle_;
-
-    TerminalEditor();
+public:
+    explicit TerminalEditor(int argc, char* argv[]);
     ~TerminalEditor();
 
+    int run();
+
+private:
     void die(const char* s);
     
     int writeOutput(const std::string_view s) 
@@ -267,7 +274,12 @@ struct TerminalEditor
 
     ScreenSize getCursorPosition();
 
+    //return changed or not
+    bool updateSyntaxImpl(size_t row_index);
+
+    //updated [row_index .. end) until changed.
     void updateSyntax(size_t row_index);
+
 
     static int syntaxToColor(const int hl);
 
@@ -312,14 +324,9 @@ struct TerminalEditor
 
     void refreshScreen();
 
-    template <TerminalCallback Callback>
-    std::string prompt(const std::string_view prompt_fmt, Callback callback);
+    template <TerminalCallback Callback, MessageCallback CallbackForMsg >
+    std::string prompt(Callback callback, CallbackForMsg msgCb);
 
-    std::string prompt(const std::string_view promt_fmt) //without callback version
-    {
-        auto cb = [](const std::string&, int) {}; // empty callback
-        return this->prompt(promt_fmt, cb);
-    }
 
     void moveCursor(int key);
 
@@ -466,11 +473,11 @@ ScreenSize TerminalEditor::getCursorPosition()
 
 /*** syntax highlighting ***/
 
-
-void TerminalEditor::updateSyntax(size_t row_index) 
+//return changed or not
+bool TerminalEditor::updateSyntaxImpl(size_t row_index) 
 {
     if (row_index >= editor_.rowList.size()) {
-        return;
+        return false;
     }
 
     auto& row = editor_.rowList[row_index];
@@ -479,17 +486,17 @@ void TerminalEditor::updateSyntax(size_t row_index)
 
     if (!editor_.syntax.has_value())
     {
-        return;
+        return false;
     }
 
-    std::span<const std::string_view> keywords = editor_.syntax->keywords;
+    const std::span<const std::string_view> keywords = editor_.syntax->keywords;
 
     const std::string_view scs = editor_.syntax->singleline_comment_start;
     const std::string_view mcs = editor_.syntax->multiline_comment_start;
     const std::string_view mce = editor_.syntax->multiline_comment_end;
 
 
-    int prev_sep = 1;
+    bool prev_is_sep = true; // previous is separator
     
     int in_string = 0;
     
@@ -498,13 +505,13 @@ void TerminalEditor::updateSyntax(size_t row_index)
     size_t i = 0;
     while (i < row.rsize()) 
     {
-        char c = row.render[i];
+        const char c = row.render[i];
         
-        unsigned char prev_hl = (i > 0) ? row.hl[i - 1] : HL_NORMAL;
+        const unsigned char prev_hl = (i > 0) ? row.hl[i - 1] : HL_NORMAL;
 
-        if (scs.length() > 0 && !in_string && !in_comment) {
+        if ( !scs.empty() && !in_string && !in_comment) {
             
-            std::string_view render_ith = std::string_view(row.render).substr(i);
+            const auto render_ith = std::string_view(row.render).substr(i);
             
             if (render_ith.starts_with(scs) )
             {
@@ -514,13 +521,14 @@ void TerminalEditor::updateSyntax(size_t row_index)
             }
         }
 
-        if (mcs.length() > 0 && mce.length() > 0 && !in_string) {
-            std::string_view render_ith = std::string_view(row.render).substr(i);
+        
+        if (mcs.length() > 0 && mce.length() > 0 && !in_string) 
+        {
+            const auto render_ith = std::string_view(row.render).substr(i);
             
             if (in_comment) 
             {
                 row.hl[i] = HL_MLCOMMENT;
-                
                 
                 if (render_ith.starts_with(mce) )
                 {
@@ -528,7 +536,7 @@ void TerminalEditor::updateSyntax(size_t row_index)
                     std::fill_n(row.hl.begin() + i, mce.length(), HL_MLCOMMENT);
                     i += mce.length();
                     in_comment = false;
-                    prev_sep = 1;
+                    prev_is_sep = true;
                     continue;
                 }
                 else 
@@ -562,7 +570,7 @@ void TerminalEditor::updateSyntax(size_t row_index)
                     in_string = 0;
 
                 i++;
-                prev_sep = 1;
+                prev_is_sep = true;
                 continue;
             }
             else {
@@ -580,53 +588,100 @@ void TerminalEditor::updateSyntax(size_t row_index)
         if (editor_.syntax->flags & HL_HIGHLIGHT_NUMBERS) 
         {
             //@TODO: replace isdigit to constexpr my_is_digit variant.
-            if ((my_is_digit(c) && (prev_sep || prev_hl == HL_NUMBER)) ||
+            if ((my_is_digit(c) && (prev_is_sep || prev_hl == HL_NUMBER)) ||
                 (c == '.' && prev_hl == HL_NUMBER)) 
             {
                 row.hl[i] = HL_NUMBER;
                 i++;
-                prev_sep = 0;
+                prev_is_sep = false;
                 continue;
             }
         }
 
-        if (prev_sep) 
+        if (prev_is_sep) 
         {
-            int j;
-            for (j = 0; j < (int)keywords.size(); j++) {
-                
-                std::string_view keyword = keywords[j];
+            const auto render_ith = std::string_view(row.render).substr(i);
 
+            bool found = false;
+            
+            const auto keyword_match = [render_ith](std::string_view keyword) -> bool
+            {
+                    const bool kw2 = keyword.ends_with('|');
+                    if (kw2)
+                    {
+                        keyword.remove_suffix(1);
+                    }
+
+                    if (!render_ith.starts_with(keyword)) {
+                        return false;
+                    }
+
+                    return (render_ith.length() == keyword.length() ||
+                            is_separator(render_ith[keyword.length()])
+                            );
+            };
+
+            const auto iter_kw = std::ranges::find_if(keywords, keyword_match);
+
+            if (iter_kw != keywords.end()) 
+            {
+                std::string_view keyword = *iter_kw;
+            
                 const bool kw2 = keyword.ends_with('|');
-                if (kw2)
+                
+                if (kw2) 
                     keyword.remove_suffix(1);
 
-                
-                std::string_view render_ith = std::string_view(row.render).substr(i);
+                const unsigned char fill_value = kw2 ? HL_KEYWORD2 : HL_KEYWORD1;
 
-                if ( render_ith == keyword || 
-                        (
-                            render_ith.starts_with(keyword) &&
-                            is_separator( render_ith[keyword.length() ] ) 
-                        ) 
-                    ) 
-                {
-                    unsigned char fill_value = kw2 ? HL_KEYWORD2 : HL_KEYWORD1;
-                    
-                    std::fill_n(row.hl.begin() + i, keyword.length(), fill_value);
-                    i += keyword.length();
-                    break;
-                }
-            }
-            
-            if ( j < keywords.size()) 
-            {
-                prev_sep = 0;
+                std::fill_n(row.hl.begin() + i, keyword.length(), fill_value);
+
+                i += keyword.length();
+
+                prev_is_sep = false;
+
                 continue;
+
             }
+
+            //for (/*non-const*/std::string_view keyword : keywords)
+            //{
+            //    const bool kw2 = keyword.ends_with('|');
+            //    if (kw2)
+            //    {
+            //        keyword.remove_suffix(1);
+            //    }
+
+            //    
+            //    
+            //    if (!render_ith.starts_with(keyword))
+            //    {
+            //        continue;
+            //    }
+
+            //    if ( render_ith.length() <= keyword.length() || 
+            //         is_separator( render_ith[keyword.length() ] )  
+            //       ) 
+            //    {
+            //        const unsigned char fill_value = kw2 ? HL_KEYWORD2 : HL_KEYWORD1;
+            //        
+            //        std::fill_n(row.hl.begin() + i, keyword.length(), fill_value);
+            //        
+            //        i += keyword.length();
+
+            //        found = true;
+            //        break;
+            //    }
+            //}
+            //
+            //if ( found ) 
+            //{
+            //    prev_is_sep = false;
+            //    continue;
+            //}
         }
 
-        prev_sep = is_separator(c);
+        prev_is_sep = is_separator(c);
         i++;
     }
 
@@ -634,10 +689,17 @@ void TerminalEditor::updateSyntax(size_t row_index)
 
     row.hl_open_comment = in_comment;
 
-    if (changed) 
+    return changed;
+}
+
+void TerminalEditor::updateSyntax(size_t row_index)
+{
+    //@NOTE: there need < operator, because row_index may be greater than rowList.size initially.
+    for (size_t idx = row_index; idx < editor_.rowList.size(); ++idx) 
     {
-        //automatic checks inside index overflow.
-        updateSyntax(row_index + 1);
+        const bool changed = updateSyntaxImpl(idx);
+        if (!changed)
+            break;
     }
 }
 
@@ -693,7 +755,8 @@ void TerminalEditor::selectSyntaxHighlight()
                 
                 for (size_t index = 0; index != editor_.rowList.size(); index++) 
                 {
-                    updateSyntax(index);
+                    // impl does not recursive call themself.
+                    updateSyntaxImpl(index);
                 }
 
                 return;
@@ -1018,7 +1081,14 @@ void TerminalEditor::saveToFile() {
     
     if (editor_.filename.empty()) 
     {
-        editor_.filename = this->prompt("Save as: {} (ESC to cancel)");
+        auto mainCb = [](const std::string&, int) {}; //do nothing.
+        
+        auto msgCb = [](const std::string& buf) 
+        {
+            return std::format("Save as: {} (ESC to cancel)", buf);
+        };
+
+        editor_.filename = this->prompt(mainCb, msgCb);
     
         if (editor_.filename.empty()) 
         {
@@ -1121,8 +1191,10 @@ void TerminalEditor::find() {
     int saved_coloff = editor_.coloff;
     int saved_rowoff = editor_.rowoff;
 
-    std::string query = this->prompt("Search: {} (Use ESC/Arrows/Enter)",
-        std::bind_front(&TerminalEditor::findCallback, this) );
+    auto mainCb = std::bind_front(&TerminalEditor::findCallback, this);
+    auto msgCb = [](const std::string& buf) { return std::format("Search: {} (Use ESC/Arrows/Enter)", buf); };
+
+    std::string query = this->prompt(mainCb, msgCb);
 
     if (query.length() > 0) 
     {
@@ -1300,7 +1372,9 @@ void TerminalEditor::drawStatusBar(struct abuf* ab) {
         editor_.numrows(),
         editor_.dirty ? "(modified)" : "");
 
-    std::string rstatus = std::format("{} | {}/{}", editor_.syntax ? editor_.syntax->filetype : "no ft", editor_.cy + 1, editor_.numrows());
+
+    std::string rstatus = std::format("{:.10} | {}/{}", editor_.syntax.has_value() ? editor_.syntax->filetype : "no ft"sv,
+        editor_.cy + 1, editor_.numrows());
 
     if (status.length() > editor_.screenSize.cols) {
         status.erase(status.begin() + editor_.screenSize.cols, status.end());
@@ -1370,8 +1444,8 @@ void TerminalEditor::refreshScreen() {
 
 /*** input ***/
 
-template <TerminalCallback Callback>
-std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback callback) 
+template <TerminalCallback Callback, MessageCallback CallbackForMsg>
+std::string TerminalEditor::prompt(Callback callback, CallbackForMsg msgCb) 
 {
     constexpr size_t BUF_INITIAL_CAPACITY = 128;
     
@@ -1381,7 +1455,7 @@ std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback c
     
     while (true) 
     {
-        editor_.statusMessage.setMessage( std::vformat(prompt_fmt, std::make_format_args(buf) ) );
+        editor_.statusMessage.setMessage( msgCb(buf) );
         
         refreshScreen();
 
@@ -1389,10 +1463,6 @@ std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback c
         
         if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) 
         {
-            //if (buflen != 0) 
-            //    buf[--buflen] = '\0';
-
-
             //C++: There removed last element 
             if (!buf.empty()) {
                 buf.pop_back();
@@ -1417,7 +1487,8 @@ std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback c
                 return buf;
             }
         }
-        else if (!my_is_control(c) && c < 128) {
+        else if (!my_is_control(c) && c < 128) 
+        {
             buf += static_cast<char>(c);
         }
 
@@ -1425,15 +1496,19 @@ std::string TerminalEditor::prompt(const std::string_view prompt_fmt, Callback c
     }
 }
 
-void TerminalEditor::moveCursor(int key) {
+void TerminalEditor::moveCursor(int key) 
+{
     EditorRow* row = (editor_.cy >= editor_.numrows() || editor_.cy < 0) ? nullptr: &editor_.rowList[editor_.cy];
 
-    switch (key) {
+    switch (key) 
+    {
     case ARROW_LEFT:
-        if (editor_.cx != 0) {
+        if (editor_.cx != 0) 
+        {
             editor_.cx--;
         }
-        else if (editor_.cy > 0) {
+        else if (editor_.cy > 0) 
+        {
             editor_.cy--;
             editor_.cx = static_cast< int > ( editor_.rowList[editor_.cy].size() ) ;
         }
@@ -1580,7 +1655,9 @@ EditorConfig::EditorConfig()
     rowoff = 0;
     coloff = 0;
     dirty = 0;
-    statusMessage.last_time = EditorStatusMessage::timer_type::min();
+    
+    statusMessage.setMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
+    
     screenSize = ScreenSize{};
 }
 
@@ -1589,14 +1666,14 @@ EditorConfig::~EditorConfig()
 
 }
 
-TerminalEditor::TerminalEditor()
+TerminalEditor::TerminalEditor(int argc, char* argv[])
     : editor_{} // initialize editor_
 {
     //1. enableRaw mode
     screenHandle_.enableRawMode();
 
     //2. screen size initialize inside TerminalEditor.
-    editor_.screenSize = ScreenHandle::getWindowSize();
+    editor_.screenSize = screenHandle_.getWindowSize();
 
     if (editor_.screenSize.cols <= 0 || editor_.screenSize.rows <= 0)
     {
@@ -1609,6 +1686,14 @@ TerminalEditor::TerminalEditor()
     }
 
     editor_.screenSize.rows -= 2;
+
+    //3. load file if exists.
+    if (argc > 1) 
+    {
+        openFile(argv[1]);
+    }
+
+    
 }
 
 
@@ -1617,42 +1702,39 @@ TerminalEditor::~TerminalEditor()
 {
 }
 
+
+int TerminalEditor::run()
+{
+    using State = wkilocpp::EditorKeyProcessState;
+
+    while (true)
+    {
+        refreshScreen();
+
+        State state = processKeypress();
+
+        switch (state) {
+        case State::do_continue:
+            //continue
+            break;
+        case State::do_exit:
+            //exit
+            return 0;
+            //for future case other states...
+        }
+    }
+}
+
 } // wkilocpp namespace
 
 int main(int argc, char* argv[]) 
 {
     try 
     {
+        wkilocpp::TerminalEditor terminalEditor(argc, argv);
         
-        wkilocpp::TerminalEditor terminalEditor{};
-
-        if (argc >= 2) 
-        {
-            terminalEditor.openFile(argv[1]);
-        }
-
-        terminalEditor.editor_.statusMessage.setMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
-
-        using State = wkilocpp::EditorKeyProcessState;
-
-        while (true)
-        {
-            terminalEditor.refreshScreen();
-            
-            State state = terminalEditor.processKeypress();
-            
-            switch (state) {
-            case State::do_continue:
-                //continue
-                break;
-            case State::do_exit:
-                //exit
-                return 0;
-            //for future case other states...
-            }
-        }
+        return terminalEditor.run();
     }
-    
     catch (const std::exception& exception) 
     {
         std::cerr << exception.what() << std::endl;

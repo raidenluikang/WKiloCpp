@@ -35,7 +35,7 @@ namespace wkilocpp
 
 		int winWrite(int ignored, const char* buf, size_t length);
 
-		static ScreenSize getWindowSize();
+		ScreenSize getWindowSize() const;
 	private:
 		struct impl;
 		struct impl* d_;

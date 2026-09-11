@@ -127,29 +127,13 @@ namespace wkilocpp
 
     
     // https://stackoverflow.com/questions/6812224/getting-terminal-size-in-c-for-windows
-    ScreenSize ScreenHandle::getWindowSize() 
+    ScreenSize ScreenHandle::getWindowSize() const
     {
         CONSOLE_SCREEN_BUFFER_INFO csbi{};
      
-        // https://learn.microsoft.com/en-us/windows/console/getstdhandle
-        HANDLE const stdHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-        
-        if (stdHandle == INVALID_HANDLE_VALUE || stdHandle == NULL) 
-        {
-            // failed.
-            
-            // If the function fails, the return value is INVALID_HANDLE_VALUE. To get extended error information, call GetLastError.
+        //У нас d_ != nullptr and d_->hStdout != NULL and d_->hStdout != INVALID_HANDLE_VALUE.
 
-            //If an application does not have associated standard handles, 
-            // such as a service running on an interactive desktop, and has not redirected them, the return value is NULL.
-
-
-            throw std::system_error(GetLastError(), std::system_category(), "GetStdHandle(STD_OUTPUT_HANDLE) failed");
-
-            //return ScreenSize{ .rows = -1, .cols = -1 };
-        }
-
-
+        HANDLE const stdHandle = d_->hStdout;
 
         //https://learn.microsoft.com/en-us/windows/console/getconsolescreenbufferinfo
         BOOL const bOk = GetConsoleScreenBufferInfo(stdHandle, &csbi);
@@ -160,7 +144,7 @@ namespace wkilocpp
             //If the function fails, the return value is zero. To get extended error information, call GetLastError.
 
             //return ScreenSize{ .rows = -3, .cols = -3 };
-            throw std::system_error(GetLastError(), std::system_category(), "GetConsoleScreenBufferInfo failed");
+            throw std::system_error( ::GetLastError(), std::system_category(), "GetConsoleScreenBufferInfo failed");
         }
         
         const int col_size = csbi.srWindow.Right - csbi.srWindow.Left + 1;
