@@ -1,19 +1,7 @@
 /*** includes ***/
-#ifdef _MSC_VER
-#define _CRT_SECURE_NO_WARNINGS 1
-#endif 
 
 #include "terminal_access.hpp"
 #include "unicode_space.hpp"
-
-//#include <ctime>
-//#include <io.h>
-//#include <cctype>
-#include <cstdio>
-//#include <cstdlib>
-//#include <cstring>
-//#include <cerrno>
-//#include <cstdarg>
 
 //C++ headers
 #include <iostream>
@@ -93,7 +81,8 @@ enum editorKey {
     PAGE_DOWN
 };
 
-enum editorHighlight {
+enum class EditorHighlight : unsigned char
+{
     HL_NORMAL = 0,
     HL_COMMENT,
     HL_MLCOMMENT,
@@ -104,8 +93,6 @@ enum editorHighlight {
     HL_MATCH
 };
 
-//#define HL_HIGHLIGHT_NUMBERS (1<<0)
-//#define HL_HIGHLIGHT_STRINGS (1<<1)
 constexpr int HL_HIGHLIGHT_NUMBERS = (1 << 0);
 constexpr int HL_HIGHLIGHT_STRINGS = (1 << 1);
 
@@ -132,7 +119,7 @@ struct EditorRow
     //int idx;
     std::string chars;
     std::string render;
-    std::vector<unsigned char> hl;
+    std::vector<enum EditorHighlight> hl;
     bool hl_open_comment;
 
     size_t size()const noexcept { return chars.size(); }
@@ -246,7 +233,7 @@ class TerminalEditor
     int direction_ = 1;
 
     size_t saved_hl_line_ = 0;
-    std::optional<std::vector<unsigned char>> saved_hl_ ;
+    std::optional< std::vector< enum EditorHighlight> > saved_hl_ ;
 
     ScreenHandle screenHandle_;
 public:
@@ -281,7 +268,7 @@ private:
     void updateSyntax(size_t row_index);
 
 
-    static int syntaxToColor(const int hl);
+    static int syntaxToColor(const  enum EditorHighlight hl);
 
     void selectSyntaxHighlight();
 
@@ -482,7 +469,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
 
     auto& row = editor_.rowList[row_index];
 
-    row.hl.assign(row.rsize(), HL_NORMAL);
+    row.hl.assign(row.rsize(), EditorHighlight::HL_NORMAL);
 
     if (!editor_.syntax.has_value())
     {
@@ -507,7 +494,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
     {
         const char c = row.render[i];
         
-        const unsigned char prev_hl = (i > 0) ? row.hl[i - 1] : HL_NORMAL;
+        const enum EditorHighlight prev_hl = (i > 0) ? row.hl[i - 1] : EditorHighlight::HL_NORMAL;
 
         if ( !scs.empty() && !in_string && !in_comment) {
             
@@ -515,7 +502,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
             
             if (render_ith.starts_with(scs) )
             {
-                std::fill(row.hl.begin() + i, row.hl.end(), HL_COMMENT);
+                std::fill(row.hl.begin() + i, row.hl.end(), EditorHighlight::HL_COMMENT);
                 
                 break;
             }
@@ -528,12 +515,12 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
             
             if (in_comment) 
             {
-                row.hl[i] = HL_MLCOMMENT;
+                row.hl[i] = EditorHighlight::HL_MLCOMMENT;
                 
                 if (render_ith.starts_with(mce) )
                 {
                     
-                    std::fill_n(row.hl.begin() + i, mce.length(), HL_MLCOMMENT);
+                    std::fill_n(row.hl.begin() + i, mce.length(), EditorHighlight::HL_MLCOMMENT);
                     i += mce.length();
                     in_comment = false;
                     prev_is_sep = true;
@@ -548,7 +535,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
             else  if ( render_ith.starts_with(mcs) )
             {
                 
-                std::fill_n(row.hl.begin() + i, mcs.length(), HL_MLCOMMENT);
+                std::fill_n(row.hl.begin() + i, mcs.length(), EditorHighlight::HL_MLCOMMENT);
                 i += mcs.length();
                 in_comment = true;
                 continue;
@@ -557,11 +544,11 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
 
         if (editor_.syntax->flags & HL_HIGHLIGHT_STRINGS) {
             if (in_string) {
-                row.hl[i] = HL_STRING;
+                row.hl[i] = EditorHighlight::HL_STRING;
                 
                 if (c == '\\' && i + 1 < row.rsize() ) 
                 {
-                    row.hl[i + 1] = HL_STRING;
+                    row.hl[i + 1] = EditorHighlight::HL_STRING;
                     i += 2;
                     continue;
                 }
@@ -577,7 +564,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
                 if (c == '"' || c == '\'') 
                 {
                     in_string = c;
-                    row.hl[i] = HL_STRING;
+                    row.hl[i] = EditorHighlight::HL_STRING;
                     i++;
                 
                     continue;
@@ -588,10 +575,10 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
         if (editor_.syntax->flags & HL_HIGHLIGHT_NUMBERS) 
         {
             //@TODO: replace isdigit to constexpr my_is_digit variant.
-            if ((my_is_digit(c) && (prev_is_sep || prev_hl == HL_NUMBER)) ||
-                (c == '.' && prev_hl == HL_NUMBER)) 
+            if ((my_is_digit(c) && (prev_is_sep || prev_hl == EditorHighlight::HL_NUMBER)) ||
+                (c == '.' && prev_hl == EditorHighlight::HL_NUMBER))
             {
-                row.hl[i] = HL_NUMBER;
+                row.hl[i] = EditorHighlight::HL_NUMBER;
                 i++;
                 prev_is_sep = false;
                 continue;
@@ -632,7 +619,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
                 if (kw2) 
                     keyword.remove_suffix(1);
 
-                const unsigned char fill_value = kw2 ? HL_KEYWORD2 : HL_KEYWORD1;
+                const enum EditorHighlight fill_value = kw2 ? EditorHighlight::HL_KEYWORD2 : EditorHighlight::HL_KEYWORD1;
 
                 std::fill_n(row.hl.begin() + i, keyword.length(), fill_value);
 
@@ -703,10 +690,11 @@ void TerminalEditor::updateSyntax(size_t row_index)
     }
 }
 
-int TerminalEditor::syntaxToColor(const int hl) 
+int TerminalEditor::syntaxToColor(const enum EditorHighlight hl) 
 {
     switch (hl) 
     {
+        using enum EditorHighlight;
     case HL_COMMENT:
     case HL_MLCOMMENT: return 36;
     case HL_KEYWORD1: return 33;
@@ -1179,7 +1167,7 @@ void TerminalEditor::findCallback(const std::string& query, int key) {
             saved_hl_ = row.hl; // copy it and save.
 
             
-            std::fill_n(row.hl.begin() + match_pos, query.length(), HL_MATCH);
+            std::fill_n(row.hl.begin() + match_pos, query.length(), EditorHighlight::HL_MATCH);
             break;
         }
     }
@@ -1312,7 +1300,7 @@ void TerminalEditor::drawRows(struct abuf* ab) {
             {
                 std::string_view cr = std::string_view(rw.render).substr(editor_.coloff);
                 
-                std::span<unsigned char> hl = std::span(rw.hl).subspan(editor_.coloff);
+                std::span< enum EditorHighlight> hl = std::span(rw.hl).subspan(editor_.coloff);
                 
                 std::optional<int> current_color = std::nullopt;
                 
@@ -1336,7 +1324,7 @@ void TerminalEditor::drawRows(struct abuf* ab) {
                             ab->append(buf);
                         }
                     }
-                    else if (hl[j] == HL_NORMAL) 
+                    else if (hl[j] == EditorHighlight::HL_NORMAL) 
                     {
                         if (current_color.has_value()) 
                         {
