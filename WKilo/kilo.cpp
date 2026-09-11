@@ -1263,9 +1263,10 @@ void TerminalEditor::scroll() {
 void TerminalEditor::drawRows(struct abuf* ab) {
     using namespace std::string_view_literals;
 
-    int y;
-    for (y = 0; y < editor_.screenSize.rows; y++) {
-        int filerow = y + editor_.rowoff;
+    
+    for (int y = 0; y < editor_.screenSize.rows; y++) 
+    {
+        const int filerow = y + editor_.rowoff;
         
         if (filerow >= editor_.numrows() ) 
         {
@@ -1280,41 +1281,46 @@ void TerminalEditor::drawRows(struct abuf* ab) {
 
                 int padding = (editor_.screenSize.cols - (int) welcome.length()) / 2;
                 
-                if (padding > 0) {
+                if (padding > 0) 
+                {
         
                     ab->append('~');
                     padding--;
                 }
-                if (padding > 0) {
+                
+                if (padding > 0) 
+                {
                     ab->append(' ', static_cast<size_t>(padding));
                 }
+                
                 ab->append(welcome);
             }
-            else {
+            else 
+            {
         
                 ab->append('~');
             }
         }
-        else {
-            int len = static_cast<int>( editor_.rowList[filerow].rsize() ) - editor_.coloff;
+        else 
+        {
+            auto& rw = editor_.rowList[filerow];
             
-            if (len < 0) 
-                len = 0;
-
-            if (len > editor_.screenSize.cols) 
-                len = editor_.screenSize.cols;
-
+            const size_t len = static_cast< size_t > ( std::clamp(static_cast<int>( rw.rsize() ) - editor_.coloff, 0, editor_.screenSize.cols) );
+            
             //@NOTE: this condition is required, otherwice may access empty vector.
-            if (len > 0) {
-                char* c = &editor_.rowList[filerow].render[editor_.coloff];
-
-                unsigned char* hl = &editor_.rowList[filerow].hl[editor_.coloff];
-
-                int current_color = -1;
-                int j;
-                for (j = 0; j < len; j++) {
-                    if (my_is_control(c[j])) {
-                        char sym = (c[j] <= 26) ? '@' + c[j] : '?';
+            if (len > 0) 
+            {
+                std::string_view cr = std::string_view(rw.render).substr(editor_.coloff);
+                
+                std::span<unsigned char> hl = std::span(rw.hl).subspan(editor_.coloff);
+                
+                std::optional<int> current_color = std::nullopt;
+                
+                for (size_t j = 0; j != len; j++) 
+                {
+                    if ( my_is_control( cr[ j ] ) ) 
+                    {
+                        const char sym = (cr[ j ] <= 26) ? '@' + cr[ j ] : '?';
         
                         ab->append("\x1b[7m"sv);
 
@@ -1322,32 +1328,37 @@ void TerminalEditor::drawRows(struct abuf* ab) {
                         ab->append(sym);
 
 
-        
                         ab->append("\x1b[m"sv);
 
-                        if (current_color != -1) {
-                            std::string buf = std::format("\x1b[{}m", current_color);
+                        if (current_color.has_value()) 
+                        {
+                            std::string buf = std::format("\x1b[{}m", *current_color);
                             ab->append(buf);
                         }
                     }
-                    else if (hl[j] == HL_NORMAL) {
-                        if (current_color != -1) {
-        
+                    else if (hl[j] == HL_NORMAL) 
+                    {
+                        if (current_color.has_value()) 
+                        {
                             ab->append("\x1b[39m"sv);
-                            current_color = -1;
+                            current_color = std::nullopt;
                         }
         
-                        ab->append(c[j]);
+                        ab->append(cr[j]);
                     }
-                    else {
-                        int color = syntaxToColor(hl[j]);
-                        if (color != current_color) {
+                    else 
+                    {
+                        const int color = syntaxToColor(hl[j]);
+
+                        if (color != current_color) 
+                        {
                             current_color = color;
+                        
                             std::string buf = std::format("\x1b[{}m", color);
                             ab->append(buf);
                         }
         
-                        ab->append(c[j]);
+                        ab->append(cr[j]);
                     }
                 }
             } // end if len > 0
