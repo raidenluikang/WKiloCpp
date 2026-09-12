@@ -30,33 +30,41 @@
 
 namespace wkilocpp
 {
+    
+
     struct ScreenHandle::impl
     {
         HANDLE hStdin;
         HANDLE hStdout;
 
+        bool rawModeEnabled = false;
         std::optional<DWORD> savedConsoleOutputMode;
         std::optional<DWORD> savedConsoleInputMode;
 
         void disableRawMode()
         {
-            printf("\x1b[0m");
-            fflush(stdout);
-
-            if (savedConsoleOutputMode.has_value())
+            //Защита от двойной вызов.
+            if (rawModeEnabled) 
             {
-                SetConsoleMode(hStdout, *savedConsoleOutputMode);
-                savedConsoleOutputMode = std::nullopt;
-            }
+                rawModeEnabled = false;
+                printf("\x1b[0m");
+                fflush(stdout);
 
-            if (savedConsoleInputMode.has_value())
-            {
-                SetConsoleMode(hStdin, *savedConsoleInputMode);
-                savedConsoleInputMode = std::nullopt;
-            }
+                if (savedConsoleOutputMode.has_value())
+                {
+                    SetConsoleMode(hStdout, *savedConsoleOutputMode);
+                    savedConsoleOutputMode = std::nullopt;
+                }
 
-            printf("\nBye!\n");
-            fflush(stdout);
+                if (savedConsoleInputMode.has_value())
+                {
+                    SetConsoleMode(hStdin, *savedConsoleInputMode);
+                    savedConsoleInputMode = std::nullopt;
+                }
+
+                printf("\nBye!\n");
+                fflush(stdout);
+            }
         }
     };
 
@@ -106,6 +114,8 @@ namespace wkilocpp
     
     void ScreenHandle::enableRawMode(void)
     {
+        d_->rawModeEnabled = true; 
+
         // Get handles for stdin and stdout
         // Set console to "raw" mode
         DWORD outputMode = 0;
