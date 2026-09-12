@@ -21,9 +21,9 @@
 
 //#include <SDKDDKVer.h>   // сам выставит _WIN32_WINNT под макс. доступную версию
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#define _WIN32_WINNT 0x0600   // Windows Vista и новее
+#define WIN32_LEAN_AND_MEAN     //NOLINT(cppcoreguidelines-macro-usage)
+#define NOMINMAX            //NOLINT(cppcoreguidelines-macro-usage)
+#define _WIN32_WINNT 0x0600  //NOLINT(cppcoreguidelines-macro-usage) // Windows Vista и новее
 
 #pragma warning(push)
 #pragma warning(disable: 5039)
@@ -37,8 +37,8 @@ namespace wkilocpp
 
     struct ScreenHandle::impl
     {
-        HANDLE hStdin;
-        HANDLE hStdout;
+        HANDLE hStdin = NULL;
+        HANDLE hStdout = NULL;
 
         
         std::optional<DWORD> savedConsoleOutputMode;
@@ -52,6 +52,7 @@ namespace wkilocpp
             if (rawModeEnabled) 
             {
                 rawModeEnabled = false;
+                //NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
                 printf("\x1b[0m");
                 fflush(stdout);
 
@@ -66,7 +67,7 @@ namespace wkilocpp
                     SetConsoleMode(hStdin, *savedConsoleInputMode);
                     savedConsoleInputMode = std::nullopt;
                 }
-
+                //NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
                 printf("\nBye!\n");
                 fflush(stdout);
             }
@@ -195,6 +196,7 @@ namespace wkilocpp
 
         if (col_size <= 0 || row_size <= 0) 
         {
+            //NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
             std::printf("col: %d row: %d\n", col_size, row_size);
             impl::throw_or_abort("col_size or row_size less or equal to zero.", d_);
         }
@@ -204,6 +206,7 @@ namespace wkilocpp
 
         if (col_size > MAX_8K_COL || row_size > MAX_8K_ROW) 
         {
+            //NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
             std::printf("col: %d row: %d\n", col_size, row_size);
             impl::throw_or_abort("col_size or row_size very big", d_);
         }

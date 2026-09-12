@@ -32,5 +32,8 @@
     <ClInclude Include="unicode_space.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ansi_color.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

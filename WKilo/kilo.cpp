@@ -3,6 +3,8 @@
 #include "terminal_access.hpp"
 #include "unicode_space.hpp"
 #include "kilo_common.hpp"
+#include "ansi_color.hpp"
+
 
 #if APP_HAS_EXCEPTIONS
 #include <system_error>
@@ -206,15 +208,15 @@ namespace wkilocpp
 
     struct EditorConfig
     {
-        size_t cx;
-        size_t cy;
-        size_t rx;
-        size_t rowoff;
-        size_t coloff;
+        size_t cx = 0;
+        size_t cy = 0;
+        size_t rx = 0;
+        size_t rowoff = 0;
+        size_t coloff = 0;
 
-        ScreenSize screenSize;
+        ScreenSize screenSize{};
         std::vector< EditorRow > rowList;
-        int dirty;
+        int dirty = 0;
         std::string filename;
         EditorStatusMessage statusMessage;
         std::optional< EditorSyntax > syntax;
@@ -224,26 +226,26 @@ namespace wkilocpp
 
         // NOTE: See below item is commented out
         //struct termios orig_termios;
-
+        
         EditorConfig();
-        ~EditorConfig();
-
+        
+        
         [[nodiscard]]
         bool writeToFile(std::ofstream& file) const;
     };
 
 
     /*** filetypes ***/
-
-    constexpr std::string_view C_HL_extensions[] = { ".c", ".h", ".cpp" };
-    constexpr std::string_view C_HL_keywords[] = {
+    
+    constexpr std::array<std::string_view, 3> C_HL_extensions = { { ".c", ".h", ".cpp" } };
+    constexpr std::array<std::string_view, 26> C_HL_keywords = { {
             "switch", "if", "while", "for", "break", "continue", "return", "else",
             "struct", "union", "typedef", "static", "enum", "class", "case",
             "const",
 
             "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
             "void|", "bool|", "short|"
-    };
+    } };
 
     constexpr  std::array<EditorSyntax, 1> HLDB = { {
             {
@@ -308,11 +310,13 @@ class TerminalEditor
     struct abuf refresh_abuf_;
 
 public:
-    explicit TerminalEditor(int argc, char* argv[]);
+    explicit TerminalEditor(const std::span< const char* const> argv);
     ~TerminalEditor();
 
     TerminalEditor(const TerminalEditor&) = delete;
     TerminalEditor& operator = (const TerminalEditor&) = delete;
+    TerminalEditor(TerminalEditor&&) = delete;
+    TerminalEditor& operator = (TerminalEditor&&) = delete;
 
     int run();
 
@@ -436,8 +440,8 @@ int TerminalEditor::readKey()
 {
     int nread = 0;
     
-
-    char buf_c[1] = {};
+    std::array<char, 1> buf_c{};
+    
 
     while ((nread = readInput( std::span<char, 1>( buf_c ) ) ) != 1) 
     {
@@ -447,8 +451,6 @@ int TerminalEditor::readKey()
         }
     }
     
-    
-
     const char c = buf_c[ 0 ];
 
     if (c != ESCAPE_SYMBOL)
@@ -458,7 +460,7 @@ int TerminalEditor::readKey()
 
     //--- There c == ESCAPE_SYMBOL ---
     
-    char seq[3]{};
+    std::array<char, 3> seq{};
         
     const std::span<char, 3> seq_span(seq);
 
@@ -525,9 +527,10 @@ ScreenSize TerminalEditor::getCursorPosition()
 {
     ScreenSize result{ .rows = 0, .cols = 0 };
 
-    char buf[32]{};
+    constexpr size_t buf_size = 32;
+    std::array<char, buf_size> buf{};
     
-    const std::span<char, sizeof(buf)> buf_span(buf);
+    const std::span<char, buf_size> buf_span(buf);
 
     size_t i = 0;
     
@@ -795,20 +798,20 @@ void TerminalEditor::updateSyntax(size_t row_index)
 
 constexpr int TerminalEditor::syntaxToColor(const enum EditorHighlight hl) noexcept
 {
-    switch (hl) 
+    switch (hl)
     {
         using enum EditorHighlight;
     case HL_COMMENT:
-    case HL_MLCOMMENT: return 36;
-    case HL_KEYWORD1: return 33;
-    case HL_KEYWORD2: return 32;
-    case HL_STRING: return 35;
-    case HL_NUMBER: return 31;
-    case HL_MATCH: return 34;
-    
+    case HL_MLCOMMENT: return AnsiColor::Cyan;
+    case HL_KEYWORD1:  return AnsiColor::Yellow;
+    case HL_KEYWORD2:  return AnsiColor::Green;
+    case HL_STRING:    return AnsiColor::Magenta;
+    case HL_NUMBER:    return AnsiColor::Red;
+    case HL_MATCH:     return AnsiColor::Blue;
+
     case HL_NORMAL:
-    default: 
-        return 37;
+    default:
+        return AnsiColor::White;
     }
 }
 
@@ -1126,7 +1129,7 @@ bool EditorConfig::writeToFile(std::ofstream& file) const
         return false;
     }
     
-    constexpr char newline[ 1 ] = { '\n' };
+    constexpr std::array<char, 1> newline = { {'\n'} };
 
     for (const EditorRow& row : rowList) 
     {
@@ -1137,7 +1140,7 @@ bool EditorConfig::writeToFile(std::ofstream& file) const
             return false;
         }
         
-        file.write(newline, 1);
+        file.write(newline.data(), static_cast<std::streamsize>(newline.size()) );
     }
 
     return file.good();
@@ -1176,6 +1179,7 @@ void TerminalEditor::openFile(const std::string& filename) {
     
 static std::u8string_view to_u8_view(std::string_view fpath)
 {
+    //NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     return std::u8string_view(reinterpret_cast<const char8_t*>(fpath.data()), fpath.size());
 }
 
@@ -1450,7 +1454,7 @@ void TerminalEditor::drawRows()
                 {
                     if ( my_is_control( cr[ j ] ) ) 
                     {
-                        const char sym = (cr[ j ] <= 26) ? '@' + cr[ j ] : '?';
+                        const char sym = (cr[ j ] <= 26) ? static_cast<char>('@' + cr[ j ]) : '?';
         
                         refresh_abuf_.append("\x1b[7m"sv);
 
@@ -1548,6 +1552,8 @@ void TerminalEditor::drawStatusBar() {
 
 void TerminalEditor::drawMessageBar()
 {
+    constexpr EditorStatusMessage::rep_type max_status_show_time_ms = 5000;
+
     using namespace std::string_view_literals;
 
     
@@ -1557,7 +1563,7 @@ void TerminalEditor::drawMessageBar()
 
     status_view = status_view.substr(0, editor_.screenSize.cols);
     
-    if (!status_view.empty()  && editor_.statusMessage.elapsedMilliseconds() < 5000 )
+    if (!status_view.empty()  && editor_.statusMessage.elapsedMilliseconds() < max_status_show_time_ms)
     {
         refresh_abuf_.append(status_view);
     }
@@ -1606,7 +1612,8 @@ template <TerminalCallback Callback, MessageCallback CallbackForMsg>
 std::string TerminalEditor::prompt(Callback callback, CallbackForMsg msgCb) 
 {
     constexpr size_t BUF_INITIAL_CAPACITY = 128;
-    
+    constexpr int CHAR_MAX_VALUE = 128;
+
     std::string buf;
     buf.reserve(BUF_INITIAL_CAPACITY);
 
@@ -1645,7 +1652,7 @@ std::string TerminalEditor::prompt(Callback callback, CallbackForMsg msgCb)
                 return buf;
             }
         }
-        else if (!my_is_control(c) && c < 128) 
+        else if (!my_is_control(c) && c < CHAR_MAX_VALUE)
         {
             buf += static_cast<char>(c);
         }
@@ -1733,7 +1740,7 @@ EditorKeyProcessState TerminalEditor::processKeypress() {
 
     using namespace std::string_view_literals;
 
-    int c = readKey();
+    const int c = readKey();
 
     switch (c) {
     case '\r':
@@ -1812,10 +1819,13 @@ EditorKeyProcessState TerminalEditor::processKeypress() {
         break;
 
     default:
-        if (c < 128)
+    {
+        constexpr int CHAR_MAX_VALUE = 128;
+        if (c < CHAR_MAX_VALUE)
         {
-            insertChar(static_cast<char>( c ) );
+            insertChar(static_cast<char>(c));
         }
+    }
         break;
     }
 
@@ -1827,25 +1837,24 @@ EditorKeyProcessState TerminalEditor::processKeypress() {
 
 /*** init ***/
 EditorConfig::EditorConfig() 
+    //: cx(0)
+    //, cy(0)
+    //, rx(0)
+    //, rowoff(0)
+    //, coloff(0)
+    //, screenSize{}
+    //, rowList{}
+    //, dirty(0)
+    //, filename()
+    //, statusMessage{}
+    //, syntax()
 {
-    cx = 0;
-    cy = 0;
-    rx = 0;
-    rowoff = 0;
-    coloff = 0;
-    dirty = 0;
-    
     statusMessage.setMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
-    
-    screenSize = ScreenSize{};
 }
 
-EditorConfig::~EditorConfig()
-{
 
-}
 
-TerminalEditor::TerminalEditor(int argc, char* argv[])
+TerminalEditor::TerminalEditor(const std::span<const char* const> argv)
     : editor_{} // initialize editor_
 {
     //1. enableRaw mode
@@ -1868,7 +1877,7 @@ TerminalEditor::TerminalEditor(int argc, char* argv[])
     editor_.screenSize.rows -= 2;
 
     //3. load file if exists.
-    if (argc > 1) 
+    if (argv.size() > 1)
     {
         openFile(argv[1]);
     }
@@ -1912,7 +1921,8 @@ int main(int argc, char* argv[])
 {
     try 
     {
-        wkilocpp::TerminalEditor terminalEditor(argc, argv);
+        std::span<const char* const > args(argv, static_cast<size_t>(argc) );
+        wkilocpp::TerminalEditor terminalEditor( args );
         
         return terminalEditor.run();
     }

@@ -73,7 +73,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <RunCodeAnalysis>true</RunCodeAnalysis>
     <EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>
-    <ClangTidyChecks>-*,clang-analyzer-*,cppcoreguidlines-*,bugprones-*</ClangTidyChecks>
+    <ClangTidyChecks>'-*,-clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,bugprone-*'</ClangTidyChecks>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClangTidyChecks>-*,clang-diagnostic-*,clang-analyzer-*,-clang-diagnostic-c++98-compat,-clang-diagnostic-c++98-compat-pedantic</ClangTidyChecks>
@@ -151,6 +151,7 @@
   <ItemGroup>
     <ClCompile Include="kilo.cpp" />
     <ClCompile Include="terminal_access.cpp" />
+    <ClInclude Include="ansi_color.hpp" />
     <ClInclude Include="kilo_common.hpp" />
     <ClInclude Include="unicode_space.hpp" />
     <ClInclude Include="terminal_access.hpp" />
