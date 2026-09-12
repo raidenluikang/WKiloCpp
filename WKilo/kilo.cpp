@@ -184,8 +184,6 @@ struct EditorConfig
     EditorConfig();
     ~EditorConfig();
 
-    //std::string rowsToString() const;
-
     bool writeToFile(std::ofstream& file) const;
 };
 
@@ -196,9 +194,10 @@ constexpr std::string_view C_HL_extensions[] = { ".c", ".h", ".cpp" };
 constexpr std::string_view C_HL_keywords[] = {
         "switch", "if", "while", "for", "break", "continue", "return", "else",
         "struct", "union", "typedef", "static", "enum", "class", "case",
+        "const",
 
         "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-        "void|"
+        "void|", "bool|", "short|"
 };
 
 constexpr  std::array<EditorSyntax, 1> HLDB = {
@@ -266,14 +265,14 @@ public:
 private:
     void die(const char* s);
     
-    int writeOutput(const std::string_view s) 
+    int writeOutput(const std::string_view cbuf) 
     {
-        return screenHandle_.winWrite(STDOUT_FILENO, s.data(), s.length());
+        return screenHandle_.winWrite( /*/STDOUT_FILENO,*/ cbuf);
     }
 
-    int readInput(char* s, int len) 
+    int readInput(const std::span<char> buf) 
     {
-        return screenHandle_.winRead(STDIN_FILENO, s, len);
+        return screenHandle_.winRead(/*STDIN_FILENO,*/ buf);
     }
 
 
@@ -358,9 +357,11 @@ void TerminalEditor::die(const char* s)
 int TerminalEditor::readKey() 
 {
     int nread = 0;
-    char c = 0;
+    
 
-    while ((nread = readInput(&c, 1)) != 1) 
+    char buf_c[1] = {};
+
+    while ((nread = readInput( std::span<char, 1>( buf_c ) ) ) != 1) 
     {
         if (nread == -1)
         {
@@ -368,18 +369,22 @@ int TerminalEditor::readKey()
         }
     }
     
+    const char c = buf_c[0];
+
     if (c == '\x1b') 
     {
         char seq[3]{};
+        
+        const std::span<char, 3> seq_span(seq);
 
-        if (readInput( &seq[0], 1) != 1) return '\x1b';
-        if (readInput( &seq[1], 1) != 1) return '\x1b';
+        if (readInput( /*&seq[0], 1*/ seq_span.subspan<0, 1>() ) != 1) return '\x1b';
+        if (readInput( /*&seq[1], 1*/ seq_span.subspan<1, 1>() ) != 1) return '\x1b';
 
         if (seq[0] == '[') 
         {
             if (seq[1] >= '0' && seq[1] <= '9') 
             {
-                if (readInput(&seq[2], 1) != 1) return '\x1b';
+                if (readInput( /*&seq[2], 1*/ seq_span.subspan<2, 1>() ) != 1) return '\x1b';
 
                 if (seq[2] == '~') 
                 {
@@ -428,6 +433,8 @@ ScreenSize TerminalEditor::getCursorPosition()
     ScreenSize result{ .rows = -1, .cols = -1 };
 
     char buf[32]{};
+    
+    const std::span<char, sizeof(buf)> buf_span(buf);
 
     unsigned int i = 0;
     
@@ -438,7 +445,7 @@ ScreenSize TerminalEditor::getCursorPosition()
 
     while (i < sizeof(buf) - 1) 
     {
-        if (readInput(&buf[i], 1) != 1) 
+        if (readInput( /*&buf[i], 1*/ buf_span.subspan(i, 1) ) != 1)
             break;
 
         if (buf[i] == 'R') break;
@@ -651,42 +658,6 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
                 continue;
 
             }
-
-            //for (/*non-const*/std::string_view keyword : keywords)
-            //{
-            //    const bool kw2 = keyword.ends_with('|');
-            //    if (kw2)
-            //    {
-            //        keyword.remove_suffix(1);
-            //    }
-
-            //    
-            //    
-            //    if (!render_ith.starts_with(keyword))
-            //    {
-            //        continue;
-            //    }
-
-            //    if ( render_ith.length() <= keyword.length() || 
-            //         is_separator( render_ith[keyword.length() ] )  
-            //       ) 
-            //    {
-            //        const unsigned char fill_value = kw2 ? HL_KEYWORD2 : HL_KEYWORD1;
-            //        
-            //        std::fill_n(row.hl.begin() + i, keyword.length(), fill_value);
-            //        
-            //        i += keyword.length();
-
-            //        found = true;
-            //        break;
-            //    }
-            //}
-            //
-            //if ( found ) 
-            //{
-            //    prev_is_sep = false;
-            //    continue;
-            //}
         }
 
         prev_is_sep = is_separator(c);
@@ -1023,22 +994,6 @@ void TerminalEditor::deleteChar()
 
 /*** file i/o ***/
 
-//std::string EditorConfig::rowsToString() const 
-//{
-//    const size_t totlen = std::accumulate(rowList.cbegin(), rowList.cend(), size_t{ 0 },
-//        [](const size_t sum, const EditorRow & row) { return sum + row.size() + 1; });
-//
-//    std::string buf;
-//    buf.reserve(totlen);
-//    
-//    for (const auto& row : rowList) 
-//    {
-//        buf += row.chars;
-//        buf += '\n';
-//    }
-//
-//    return buf;
-//}
 bool EditorConfig::writeToFile(std::ofstream& file) const
 {
     if (!file.is_open()) 
@@ -1099,9 +1054,10 @@ static std::u8string_view to_u8_view(std::string_view fpath)
     return std::u8string_view(reinterpret_cast<const char8_t*>(fpath.data()), fpath.size());
 }
 
-void TerminalEditor::saveToFile() {
-    
-    if (editor_.filename.empty()) 
+void TerminalEditor::saveToFile() 
+{
+    bool const noFileName = editor_.filename.empty();
+    if (noFileName) 
     {
         auto mainCb = [](const std::string&, int) {}; //do nothing.
         
@@ -1122,8 +1078,6 @@ void TerminalEditor::saveToFile() {
     }
 
     
-    //const std::string buf = editor_.rowsToString();
-
     {
         namespace fs = std::filesystem;
 
@@ -1136,7 +1090,10 @@ void TerminalEditor::saveToFile() {
         
         if (!file.is_open()) 
         {
-
+            if (noFileName) {
+                //previously do not open file
+                editor_.filename = "";//clear it.
+            }
             editor_.statusMessage.setMessage("Can't open file for write! I/O error");
             return ;
         }
@@ -1149,13 +1106,6 @@ void TerminalEditor::saveToFile() {
             return;
         }
     }
-    //const bool bOk = writeFileUtf8(editor_.filename, buf);
-    //
-    //if (!bOk) 
-    //{
-    //    editor_.statusMessage.setMessage("Can't save! I/O error");
-    //    return;
-    //}
     
 
     editor_.statusMessage.setMessage("Saved to disk");

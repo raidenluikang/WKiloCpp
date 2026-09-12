@@ -1,14 +1,15 @@
 
 #include <string_view>
+#include <cstddef> // size_t
+#include <span>
 
-#ifndef STDOUT_FILENO
-#define STDOUT_FILENO 1
-#endif
-#ifndef STDIN_FILENO
-#define STDIN_FILENO 0
-#endif
-
-// Some code taken from - https://github.com/microsoft/terminal/issues/8820
+//#ifndef STDOUT_FILENO
+//#define STDOUT_FILENO 1
+//#endif
+//#ifndef STDIN_FILENO
+//#define STDIN_FILENO 0
+//#endif
+//
 
 namespace wkilocpp
 {
@@ -29,11 +30,11 @@ namespace wkilocpp
 		ScreenHandle& operator = (const ScreenHandle&) = delete;
 
 
-		void enableRawMode(void);
+		void enableRawMode();
 
-		int winRead(int ignored, char* c, int toread);
+		int winRead( /*int ignored,*/ std::span<char> buf);
 
-		int winWrite(int ignored, const char* buf, size_t length);
+		int winWrite( /*int ignored,*/ std::span<const char> cbuf);
 
 		ScreenSize getWindowSize() const;
 	private:
