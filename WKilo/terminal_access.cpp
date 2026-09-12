@@ -4,8 +4,7 @@
 
 #include <system_error>
 
-#include <filesystem>
-#include <fstream>
+
 #include <string_view>
 #include <optional>
 #include <utility>
@@ -189,30 +188,6 @@ namespace wkilocpp
     }
 
 
-    static std::u8string_view to_u8_view(std::string_view fpath) 
-    {
-        return std::u8string_view(reinterpret_cast<const char8_t*>(fpath.data()), fpath.size());
-    }
-
-    bool writeFileUtf8(std::string_view fpath, std::string_view data) 
-    {
-        namespace fs = std::filesystem;
     
-        // char8_t-конструктор пути — явная гарантия UTF-8 интерпретации,
-        // на Windows конвертация в UTF-16 внутри path выполняется автоматически.
-        std::u8string_view u8_fpath = to_u8_view(fpath);
-        fs::path path(u8_fpath.begin(), u8_fpath.end() );
-
-        std::ofstream file(path, std::ios::binary | std::ios::trunc);
-        if (!file.is_open()) {
-
-            return false;
-        }
-
-        file.write(data.data(), static_cast<std::streamsize>(data.size()));
-
-
-        return file.good();
-    }
 
 } // wkilocpp namespace

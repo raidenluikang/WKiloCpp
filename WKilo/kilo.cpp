@@ -4,6 +4,8 @@
 #include "unicode_space.hpp"
 
 //C++ headers
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string_view>
 #include <string>
@@ -18,7 +20,6 @@
 #include <span>
 #include <optional>
 #include <charconv>
-#include <fstream>
 #include <concepts>
 #include <ranges>
 /*** defines ***/
@@ -49,7 +50,7 @@ template <typename T> constexpr  bool is_separator(T) = delete; // use only char
 
 constexpr bool is_separator(const char c) noexcept
 {
-    using namespace std::string_view_literals;
+    using namespace std::literals::string_view_literals;
 
     constexpr std::string_view specials = ",.()+-/*=~%<>[];{}^"sv;
 
@@ -67,8 +68,9 @@ constexpr bool my_is_digit(const char c) noexcept
 }
 
 
-
-enum editorKey {
+//@TODO: made it enum class.
+enum EditorKey 
+{
     BACKSPACE = 127,
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
@@ -116,16 +118,15 @@ struct EditorSyntax
 
 struct EditorRow 
 {
-    //int idx;
     std::string chars;
     std::string render;
     std::vector<enum EditorHighlight> hl;
     bool hl_open_comment;
 
-    size_t size()const noexcept { return chars.size(); }
+    size_t size() const noexcept { return chars.size(); }
 
-    //@TODO: rename it to render_size
-    size_t rsize() const noexcept { return render.size(); }
+    
+    size_t render_size() const noexcept { return render.size(); }
 
     size_t rowCxToRx(size_t cx) const noexcept;
 
@@ -183,7 +184,9 @@ struct EditorConfig
     EditorConfig();
     ~EditorConfig();
 
-    std::string rowsToString() const;
+    //std::string rowsToString() const;
+
+    bool writeToFile(std::ofstream& file) const;
 };
 
 
@@ -487,7 +490,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
 
     auto& row = editor_.rowList[row_index];
 
-    row.hl.assign(row.rsize(), EditorHighlight::HL_NORMAL);
+    row.hl.assign(row.render_size(), EditorHighlight::HL_NORMAL);
 
     if (!editor_.syntax.has_value())
     {
@@ -508,7 +511,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
     bool in_comment = (row_index > 0 && editor_.rowList[row_index - 1].hl_open_comment);
 
     size_t i = 0;
-    while (i < row.rsize()) 
+    while (i < row.render_size()) 
     {
         const char c = row.render[i];
         
@@ -564,7 +567,7 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
             if (in_string) {
                 row.hl[i] = EditorHighlight::HL_STRING;
                 
-                if (c == '\\' && i + 1 < row.rsize() ) 
+                if (c == '\\' && i + 1 < row.render_size() ) 
                 {
                     row.hl[i + 1] = EditorHighlight::HL_STRING;
                     i += 2;
@@ -935,7 +938,7 @@ void TerminalEditor::rowDeleteChar(size_t row_index, size_t at)
 
 void TerminalEditor::insertChar(char c) 
 {
-    if (editor_.cy == editor_.numrows()) 
+    if ( std::cmp_equal(editor_.cy, editor_.numrows()) ) 
     {
         insertRow(editor_.numrows(), "");
     }
@@ -1020,21 +1023,44 @@ void TerminalEditor::deleteChar()
 
 /*** file i/o ***/
 
-std::string EditorConfig::rowsToString() const 
+//std::string EditorConfig::rowsToString() const 
+//{
+//    const size_t totlen = std::accumulate(rowList.cbegin(), rowList.cend(), size_t{ 0 },
+//        [](const size_t sum, const EditorRow & row) { return sum + row.size() + 1; });
+//
+//    std::string buf;
+//    buf.reserve(totlen);
+//    
+//    for (const auto& row : rowList) 
+//    {
+//        buf += row.chars;
+//        buf += '\n';
+//    }
+//
+//    return buf;
+//}
+bool EditorConfig::writeToFile(std::ofstream& file) const
 {
-    const size_t totlen = std::accumulate(rowList.cbegin(), rowList.cend(), size_t{ 0 },
-        [](const size_t sum, const EditorRow & row) { return sum + row.size() + 1; });
-
-    std::string buf;
-    buf.reserve(totlen);
-    
-    for (const auto& row : rowList) 
+    if (!file.is_open()) 
     {
-        buf += row.chars;
-        buf += '\n';
+        return false;
+    }
+    
+    constexpr char newline[ 1 ] = { '\n' };
+
+    for (const EditorRow& row : rowList) 
+    {
+        file.write(row.chars.data(), row.chars.size());
+    
+        if (!file.good()) 
+        {
+            return false;
+        }
+        
+        file.write(newline, 1);
     }
 
-    return buf;
+    return file.good();
 }
 
 void TerminalEditor::openFile(const std::string& filename) {
@@ -1067,6 +1093,12 @@ void TerminalEditor::openFile(const std::string& filename) {
     editor_.dirty = 0;
 }
 
+    
+static std::u8string_view to_u8_view(std::string_view fpath)
+{
+    return std::u8string_view(reinterpret_cast<const char8_t*>(fpath.data()), fpath.size());
+}
+
 void TerminalEditor::saveToFile() {
     
     if (editor_.filename.empty()) 
@@ -1090,16 +1122,40 @@ void TerminalEditor::saveToFile() {
     }
 
     
-    const std::string buf = editor_.rowsToString();
+    //const std::string buf = editor_.rowsToString();
 
-    
-    const bool bOk = writeFileUtf8(editor_.filename, buf);
-    
-    if (!bOk) 
     {
-        editor_.statusMessage.setMessage("Can't save! I/O error");
-        return;
+        namespace fs = std::filesystem;
+
+        std::u8string_view u8_fpath = to_u8_view(editor_.filename);
+        
+        //For Windows filesystem path guaranteed UTF8 -> UTF8 conversation when use char8_t.
+        const fs::path path(u8_fpath.begin(), u8_fpath.end());
+
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        
+        if (!file.is_open()) 
+        {
+
+            editor_.statusMessage.setMessage("Can't open file for write! I/O error");
+            return ;
+        }
+        
+        const bool ok = editor_.writeToFile(file);
+        
+        if (!ok) 
+        {
+            editor_.statusMessage.setMessage("Can't save! I/O error");
+            return;
+        }
     }
+    //const bool bOk = writeFileUtf8(editor_.filename, buf);
+    //
+    //if (!bOk) 
+    //{
+    //    editor_.statusMessage.setMessage("Can't save! I/O error");
+    //    return;
+    //}
     
 
     editor_.statusMessage.setMessage("Saved to disk");
@@ -1278,7 +1334,7 @@ void TerminalEditor::drawRows()
         {
             auto& rw = editor_.rowList[filerow];
             
-            const size_t len = static_cast< size_t > ( std::clamp(static_cast<int>( rw.rsize() ) - editor_.coloff, 0, editor_.screenSize.cols) );
+            const size_t len = static_cast< size_t > ( std::clamp(static_cast<int>( rw.render_size() ) - editor_.coloff, 0, editor_.screenSize.cols) );
             
             //@NOTE: this condition is required, otherwice may access empty vector.
             if (len > 0) 

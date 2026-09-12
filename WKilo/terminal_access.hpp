@@ -42,9 +42,7 @@ namespace wkilocpp
 	};
 	
 
-	//These function do not depend ScreeHandle	
-	bool writeFileUtf8(std::string_view fpath, std::string_view data);
-
+	
 	//DWORD is unsigned long in Windows System.
 	unsigned long winGetLastError();
 
