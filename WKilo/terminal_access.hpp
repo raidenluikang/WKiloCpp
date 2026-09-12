@@ -36,14 +36,13 @@ namespace wkilocpp
 
 		int winWrite( /*int ignored,*/ std::span<const char> cbuf);
 
+		/*guaranteed that screen size row and cols in [1..8192] */
 		ScreenSize getWindowSize() const;
 
 		void disableRawMode();
 	private:
 		struct impl;
 		struct impl* d_;
-
-		friend void throw_or_abort(const char* msg, struct impl* d_);
 	};
 	
 

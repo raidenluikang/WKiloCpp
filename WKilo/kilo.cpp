@@ -34,249 +34,256 @@
 #pragma warning(disable: 5045) //  /Qspectre not interesting in current moment
 
 namespace wkilocpp
-{ 
-
-constexpr std::string_view KILO_VERSION = "0.0.1";
-constexpr int KILO_TAB_STOP = 8;
-constexpr int KILO_QUIT_TIMES = 3;
-
-constexpr char ESCAPE_SYMBOL = '\x1b';
-
-
-[[nodiscard]]
-constexpr int CTRL_KEY(const int key) noexcept 
 {
-    constexpr int mask = 0x1F;
-    return key & mask;
-}
 
-[[nodiscard]]
-constexpr bool my_is_space(const char c) noexcept
-{
-    return unicode::is_space(static_cast<char32_t>(static_cast<unsigned char>(c)));
-}
+    constexpr std::string_view KILO_VERSION = "0.0.1";
+    constexpr int KILO_TAB_STOP = 8;
+    constexpr int KILO_QUIT_TIMES = 3;
 
-template <typename T> constexpr  bool is_separator(T) = delete; // use only char variant.
+    constexpr char ESCAPE_SYMBOL = '\x1b';
 
-[[nodiscard]]
-constexpr bool is_separator(const char c) noexcept
-{
-    using namespace std::literals::string_view_literals;
-
-    constexpr std::string_view specials = ",.()+-/*=~%<>[];{}^"sv;
-
-    return my_is_space(c) || (c == '\0') || (specials.find(c) != specials.npos);
-}
-
-[[nodiscard]]
-constexpr bool my_is_control(const char c) noexcept
-{
-    return unicode::is_control(static_cast<char32_t>(static_cast<unsigned char>(c)));
-}
-
-[[nodiscard]]
-constexpr bool my_is_control(const int c ) noexcept
-{
-    return unicode::is_control(static_cast<char32_t>(static_cast<unsigned int>(c)));
-}
-template <typename T> constexpr bool my_is_control(T ) noexcept = delete;//other variants should be error.
-
-
-[[nodiscard]]
-constexpr bool my_is_digit(const char c) noexcept
-{
-    return unicode::is_digit(static_cast<char32_t>(static_cast<unsigned char>(c)));
-}
-
-
-template <typename Container, typename SizeType >
-void erase_at(Container& container, SizeType at) {
-    container.erase(std::next(container.cbegin(), static_cast<typename Container::difference_type >( at ) ) );
-}
-
-template <typename Container, typename SizeType>
-void erase_at_end(Container& container, SizeType at) {
-    container.erase(std::next(container.cbegin(), static_cast<typename Container::difference_type>(at)), container.cend());
-}
-
-template <typename Container, typename T>
-auto insert_at(Container& container, size_t at, T&& value) {
-    return container.insert(std::next(container.cbegin(), static_cast<typename Container::difference_type>(at)), std::forward<T>(value));
-}
-
-
-//@TODO: made it enum class.
-enum EditorKey 
-{
-    BACKSPACE = 127,
-    ARROW_LEFT = 1000,
-    ARROW_RIGHT,
-    ARROW_UP,
-    ARROW_DOWN,
-    DEL_KEY,
-    HOME_KEY,
-    END_KEY,
-    PAGE_UP,
-    PAGE_DOWN
-};
-
-enum class EditorHighlight : unsigned char
-{
-    HL_NORMAL = 0,
-    HL_COMMENT,
-    HL_MLCOMMENT,
-    HL_KEYWORD1,
-    HL_KEYWORD2,
-    HL_STRING,
-    HL_NUMBER,
-    HL_MATCH
-};
-
-constexpr int HL_HIGHLIGHT_NUMBERS = (1 << 0);
-constexpr int HL_HIGHLIGHT_STRINGS = (1 << 1);
-
-/*** data ***/
-enum class EditorKeyProcessState
-{
-    do_continue,
-    do_exit
-};
-
-struct EditorSyntax 
-{
-    std::string_view filetype;
-    std::span<const std::string_view > filematch;
-    std::span<const std::string_view > keywords;
-    std::string_view singleline_comment_start;
-    std::string_view multiline_comment_start;
-    std::string_view multiline_comment_end;
-    
-    int flags;
-
-};
-
-struct EditorRow 
-{
-    std::string chars;
-    std::string render;
-    std::vector<enum EditorHighlight> hl;
-    bool hl_open_comment;
 
     [[nodiscard]]
-    size_t size() const noexcept { return chars.size(); }
-
-    [[nodiscard]]
-    size_t render_size() const noexcept { return render.size(); }
-
-    [[nodiscard]]
-    size_t rowCxToRx(size_t cx) const noexcept;
-
-    [[nodiscard]]
-    size_t rowRxToCx(size_t rx) const noexcept;
-
-};
-
-
-
-struct EditorStatusMessage
-{
-    using clock_type = std::chrono::high_resolution_clock;
-    using timer_type = clock_type::time_point;
-    using rep_type = clock_type::duration::rep;
-
-    std::string message;
-
-    timer_type last_time{};
-
-    
-    void setMessage(std::string messageArg) 
+    constexpr int CTRL_KEY(const int key) noexcept
     {
-        this->message = std::move(messageArg);
-        this->last_time = clock_type::now();
+        constexpr int mask = 0x1F;
+        return key & mask;
     }
 
     [[nodiscard]]
-    rep_type elapsedMilliseconds() const noexcept
+    constexpr bool my_is_space(const char c) noexcept
     {
-        auto now = clock_type::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
-        return elapsed.count();
+        return unicode::is_space(static_cast<char32_t>(static_cast<unsigned char>(c)));
     }
-};
 
-struct EditorConfig 
-{
-    size_t cx;
-    size_t cy;
-    size_t rx;
-    size_t rowoff;
-    size_t coloff;
-
-    ScreenSize screenSize;
-    std::vector< EditorRow > rowList;
-    int dirty;
-    std::string filename;
-    EditorStatusMessage statusMessage;
-    std::optional< EditorSyntax > syntax ;
+    template <typename T> constexpr  bool is_separator(T) = delete; // use only char variant.
 
     [[nodiscard]]
-    size_t numrows() const noexcept { return rowList.size(); }
+    constexpr bool is_separator(const char c) noexcept
+    {
+        using namespace std::literals::string_view_literals;
 
-    // NOTE: See below item is commented out
-    //struct termios orig_termios;
+        constexpr std::string_view specials = ",.()+-/*=~%<>[];{}^"sv;
 
-    EditorConfig();
-    ~EditorConfig();
+        return my_is_space(c) || (c == '\0') || (specials.find(c) != specials.npos);
+    }
 
     [[nodiscard]]
-    bool writeToFile(std::ofstream& file) const;
-};
+    constexpr bool my_is_control(const char c) noexcept
+    {
+        return unicode::is_control(static_cast<char32_t>(static_cast<unsigned char>(c)));
+    }
+
+    [[nodiscard]]
+    constexpr bool my_is_control(const int c) noexcept
+    {
+        return unicode::is_control(static_cast<char32_t>(static_cast<unsigned int>(c)));
+    }
+    template <typename T> constexpr bool my_is_control(T) noexcept = delete;//other variants should be error.
 
 
-/*** filetypes ***/
+    [[nodiscard]]
+    constexpr bool my_is_digit(const char c) noexcept
+    {
+        return unicode::is_digit(static_cast<char32_t>(static_cast<unsigned char>(c)));
+    }
 
-constexpr std::string_view C_HL_extensions[] = { ".c", ".h", ".cpp" };
-constexpr std::string_view C_HL_keywords[] = {
-        "switch", "if", "while", "for", "break", "continue", "return", "else",
-        "struct", "union", "typedef", "static", "enum", "class", "case",
-        "const",
 
-        "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-        "void|", "bool|", "short|"
-};
+    template <typename Container, typename SizeType >
+    void erase_at(Container& container, SizeType at) {
+        container.erase(std::next(container.cbegin(), static_cast<typename Container::difference_type>(at)));
+    }
 
-constexpr  std::array<EditorSyntax, 1> HLDB = {
+    template <typename Container, typename SizeType>
+    void erase_at_end(Container& container, SizeType at) {
+        container.erase(std::next(container.cbegin(), static_cast<typename Container::difference_type>(at)), container.cend());
+    }
+
+    template <typename Container, typename T>
+    auto insert_at(Container& container, size_t at, T&& value) {
+        return container.insert(std::next(container.cbegin(), static_cast<typename Container::difference_type>(at)), std::forward<T>(value));
+    }
+
+
+    //@TODO: made it enum class.
+    enum EditorKey
+    {
+        BACKSPACE = 127,
+        ARROW_LEFT = 1000,
+        ARROW_RIGHT,
+        ARROW_UP,
+        ARROW_DOWN,
+        DEL_KEY,
+        HOME_KEY,
+        END_KEY,
+        PAGE_UP,
+        PAGE_DOWN
+    };
+
+    enum class EditorHighlight : unsigned char
+    {
+        HL_NORMAL = 0,
+        HL_COMMENT,
+        HL_MLCOMMENT,
+        HL_KEYWORD1,
+        HL_KEYWORD2,
+        HL_STRING,
+        HL_NUMBER,
+        HL_MATCH
+    };
+
+    constexpr int HL_HIGHLIGHT_NUMBERS = (1 << 0);
+    constexpr int HL_HIGHLIGHT_STRINGS = (1 << 1);
+
+    /*** data ***/
+    enum class EditorKeyProcessState
+    {
+        do_continue,
+        do_exit
+    };
+
+    struct EditorSyntax
+    {
+        std::string_view filetype;
+        std::span<const std::string_view > filematch;
+        std::span<const std::string_view > keywords;
+        std::string_view singleline_comment_start;
+        std::string_view multiline_comment_start;
+        std::string_view multiline_comment_end;
+
+        int flags;
+
+    };
+
+    struct EditorRow
+    {
+        std::string chars;
+        std::string render;
+        std::vector<enum EditorHighlight> hl;
+        bool hl_open_comment;
+
+        [[nodiscard]]
+        size_t size() const noexcept { return chars.size(); }
+
+        [[nodiscard]]
+        size_t render_size() const noexcept { return render.size(); }
+
+        [[nodiscard]]
+        size_t rowCxToRx(size_t cx) const noexcept;
+
+        [[nodiscard]]
+        size_t rowRxToCx(size_t rx) const noexcept;
+
+    };
+
+
+
+    struct EditorStatusMessage
+    {
+        using clock_type = std::chrono::high_resolution_clock;
+        using timer_type = clock_type::time_point;
+        using rep_type = clock_type::duration::rep;
+
+        std::string message;
+
+        timer_type last_time{};
+
+
+        void setMessage(std::string messageArg)
         {
+            this->message = std::move(messageArg);
+            this->last_time = clock_type::now();
+        }
+
+        [[nodiscard]]
+        rep_type elapsedMilliseconds() const noexcept
+        {
+            auto now = clock_type::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
+            return elapsed.count();
+        }
+    };
+
+    struct EditorConfig
+    {
+        size_t cx;
+        size_t cy;
+        size_t rx;
+        size_t rowoff;
+        size_t coloff;
+
+        ScreenSize screenSize;
+        std::vector< EditorRow > rowList;
+        int dirty;
+        std::string filename;
+        EditorStatusMessage statusMessage;
+        std::optional< EditorSyntax > syntax;
+
+        [[nodiscard]]
+        size_t numrows() const noexcept { return rowList.size(); }
+
+        // NOTE: See below item is commented out
+        //struct termios orig_termios;
+
+        EditorConfig();
+        ~EditorConfig();
+
+        [[nodiscard]]
+        bool writeToFile(std::ofstream& file) const;
+    };
+
+
+    /*** filetypes ***/
+
+    constexpr std::string_view C_HL_extensions[] = { ".c", ".h", ".cpp" };
+    constexpr std::string_view C_HL_keywords[] = {
+            "switch", "if", "while", "for", "break", "continue", "return", "else",
+            "struct", "union", "typedef", "static", "enum", "class", "case",
+            "const",
+
+            "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+            "void|", "bool|", "short|"
+    };
+
+    constexpr  std::array<EditorSyntax, 1> HLDB = { {
+            {
                 "c",
                 C_HL_extensions,
                 C_HL_keywords,
                 "//", "/*", "*/",
                 HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
-        },
-};
+            },
+    } };
 
 
 
-/*** prototypes ***/
-/*** append buffer ***/
-struct abuf
-{
-    std::string value;
-
-    void append(const std::string_view sview)
+    /*** prototypes ***/
+    /*** append buffer ***/
+    struct abuf
     {
-        value.append(sview.begin(), sview.end());
-    }
+        std::string value;
 
-    void append(const char symbol)
+        void append(const std::string_view sview)
+        {
+            value.append(sview.begin(), sview.end());
+        }
+
+        void append(const char symbol)
+        {
+            value.append(1, symbol);
+        }
+        void append(const char symbol, size_t count)
+        {
+            value.append(count, symbol);
+        }
+    };
+
+
+    struct SavedHighlight
     {
-        value.append(1, symbol);
-    }
-    void append(const char symbol, size_t count)
-    {
-        value.append(count, symbol);
-    }
-};
+        size_t line;
+        std::vector<enum EditorHighlight> hl;
+    };
 
 /*** terminal ***/
 template <typename C >  
@@ -294,8 +301,7 @@ class TerminalEditor
     int last_match_ = -1;
     int direction_ = 1;
 
-    size_t saved_hl_line_ = 0;
-    std::optional< std::vector< enum EditorHighlight> > saved_hl_ ;
+    std::optional<SavedHighlight> saved_hl_ ;
 
     ScreenHandle screenHandle_;
 
@@ -481,6 +487,8 @@ int TerminalEditor::readKey()
                 case '6': return PAGE_DOWN;
                 case '7': return HOME_KEY;
                 case '8': return END_KEY;
+                default:
+                    break;
                 }
             }
         }
@@ -493,6 +501,8 @@ int TerminalEditor::readKey()
             case 'D': return ARROW_LEFT;
             case 'H': return HOME_KEY;
             case 'F': return END_KEY;
+            default:
+                break;
             }
         }
     }
@@ -501,6 +511,8 @@ int TerminalEditor::readKey()
         switch (seq[1]) {
         case 'H': return HOME_KEY;
         case 'F': return END_KEY;
+        default:
+            break;
         }
     }
 
@@ -517,23 +529,24 @@ ScreenSize TerminalEditor::getCursorPosition()
     
     const std::span<char, sizeof(buf)> buf_span(buf);
 
-    unsigned int i = 0;
+    size_t i = 0;
     
     using namespace std::string_view_literals;
 
     if (writeOutput("\x1b[6n"sv) != 4) 
         return result;
 
-    while (i < sizeof(buf) - 1) 
+    while (i + 1 < buf_span.size())
     {
         if (readInput( buf_span.subspan(i, 1) ) != 1)
             break;
 
-        if (buf[i] == 'R') break;
+        if (buf_span[i] == 'R') 
+            break;
         i++;
     }
     
-    buf[i] = '\0';
+    //buf[i] = '\0';
 
     if (buf[0] != ESCAPE_SYMBOL || buf[1] != '[') 
         return result;
@@ -541,23 +554,31 @@ ScreenSize TerminalEditor::getCursorPosition()
     //if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) 
     //    return -1;
     {
-        const char* start_buf = buf + 2;
-        const char* end_buf = buf + i;
+        std::span<const char> row_buf = buf_span.subspan(2);
+        //const char* row_buf = buf + 2;
+        //const char* end_buf = buf + i;
 
         //1. winRead rows
-        const auto [ptr_row, ec_row] = std::from_chars(start_buf, end_buf, result.rows);
+                        // NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage)
+        const auto [ptr_row, ec_row] = std::from_chars(row_buf.data(), row_buf.data() + row_buf.size(), result.rows);
         if (ec_row != std::errc{}) {
             return result;
         }
 
         //2. winRead cols
-        if (!(ptr_row != end_buf && *ptr_row == ';')) {
+                        // NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage)
+        if (!(ptr_row != row_buf.data() + row_buf.size() && *ptr_row == ';')) {
             // ';' separator not found
             return result;
         }
-        start_buf = ptr_row + 1;
+        //row_buf = ptr_row + 1;
 
-        const auto [ptr_col, ec_col] = std::from_chars(start_buf, end_buf, result.cols);
+        const ptrdiff_t off = ptr_row - row_buf.data();
+
+        std::span<const char> col_buf = row_buf.subspan(static_cast<size_t>(off));
+
+                    // NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage)
+        const auto [ptr_col, ec_col] = std::from_chars(col_buf.data(), col_buf.data() + col_buf.size(), result.cols);
         if (ec_col != std::errc{}) {
             return result;
         }
@@ -1224,14 +1245,13 @@ void TerminalEditor::findCallback(const std::string& query, int key) {
 
     if (saved_hl_.has_value()) 
     {
-        if (saved_hl_line_ < editor_.rowList.size()) 
+        if (saved_hl_->line < editor_.rowList.size()) 
         {
-            EditorRow& row = editor_.rowList[saved_hl_line_];
-            row.hl.swap(*saved_hl_);
+            EditorRow& row = editor_.rowList[ saved_hl_->line ];
+            row.hl.swap(saved_hl_->hl);
         }
     
         saved_hl_ = std::nullopt;
-        saved_hl_line_ = 0;
     }
 
     if (key == '\r' || key == ESCAPE_SYMBOL) {
@@ -1281,9 +1301,8 @@ void TerminalEditor::findCallback(const std::string& query, int key) {
             editor_.cx = row.rowRxToCx(match_pos);
             editor_.rowoff = editor_.numrows();
 
-            saved_hl_line_ = current_sz;
-            
-            saved_hl_ = row.hl; // copy it and save.
+            //C++20 can build this case.
+            saved_hl_.emplace(current_sz, row.hl);
 
             
             //std::fill_n(row.hl.begin() + match_pos, query.length(), EditorHighlight::HL_MATCH);
@@ -1693,6 +1712,8 @@ void TerminalEditor::moveCursor(int key)
         if (editor_.cy < editor_.numrows()) {
             editor_.cy++;
         }
+        break;
+    default:
         break;
     }
 

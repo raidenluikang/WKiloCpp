@@ -24,8 +24,11 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define _WIN32_WINNT 0x0600   // Windows Vista и новее
-#include <windows.h>
 
+#pragma warning(push)
+#pragma warning(disable: 5039)
+#include <windows.h>
+#pragma warning(pop)
 
 
 namespace wkilocpp
@@ -37,9 +40,11 @@ namespace wkilocpp
         HANDLE hStdin;
         HANDLE hStdout;
 
-        bool rawModeEnabled = false;
+        
         std::optional<DWORD> savedConsoleOutputMode;
         std::optional<DWORD> savedConsoleInputMode;
+        BOOL rawModeEnabled = false;
+        BOOL unusedNeverUsed = false;
 
         void disableRawMode()
         {
@@ -66,11 +71,15 @@ namespace wkilocpp
                 fflush(stdout);
             }
         }
+        [[noreturn]]
+        static void throw_or_abort(const char* msg , [[maybe_unused]] impl* d_);
     };
 
-    void throw_or_abort(const char* msg, ScreenHandle::impl* d_) {
+    [[noreturn]]
+    void ScreenHandle::impl::throw_or_abort(const char* msg, [[maybe_unused]]ScreenHandle::impl* d_) 
+    {
 #if APP_HAS_EXCEPTIONS
-        throw std::system_error(GetLastError(), std::system_category(), msg);
+        throw std::system_error( static_cast< int >( GetLastError() ), std::system_category(), msg);
 #else 
         if (d_ != nullptr) 
         {
@@ -94,14 +103,14 @@ namespace wkilocpp
 
         if (d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL)
         {
-            throw_or_abort("GetStdHandle(STD_INPUT_HANDLE) failed", d_);
+            impl::throw_or_abort("GetStdHandle(STD_INPUT_HANDLE) failed", d_);
         }
 
         d_->hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
 
         if (d_->hStdout == INVALID_HANDLE_VALUE || d_->hStdout == NULL)
         {
-            throw_or_abort("GetStdHandle(STD_OUTPUT_HANDLE) failed", d_);
+            impl::throw_or_abort("GetStdHandle(STD_OUTPUT_HANDLE) failed", d_);
         }
     }
 
@@ -121,7 +130,7 @@ namespace wkilocpp
         DWORD outputMode = 0;
         if (!GetConsoleMode(d_->hStdout, &outputMode))
         {
-            throw_or_abort("GetConsoleMode(hStdout) failed", d_);
+            impl::throw_or_abort("GetConsoleMode(hStdout) failed", d_);
         }
 
         d_->savedConsoleOutputMode = outputMode;
@@ -132,7 +141,7 @@ namespace wkilocpp
 
         if (!SetConsoleMode(d_->hStdout, newOutputMode))
         {
-            throw_or_abort("SetConsoleMode(hStdout, newOutputMode) failed", d_);
+            impl::throw_or_abort("SetConsoleMode(hStdout, newOutputMode) failed", d_);
         }
 
 
@@ -140,7 +149,7 @@ namespace wkilocpp
         DWORD inputMode = 0;
         if (!GetConsoleMode(d_->hStdin, &inputMode))
         {
-            throw_or_abort("GetConsoleMode(hStdin) failed", d_);
+            impl::throw_or_abort("GetConsoleMode(hStdin) failed", d_);
         }
 
         d_->savedConsoleInputMode = inputMode;
@@ -152,7 +161,7 @@ namespace wkilocpp
 
         if (!SetConsoleMode(d_->hStdin, newInputMode))
         {
-            throw_or_abort("SetConsoleMode(hStdin, newInputMode) failed", d_);
+            impl::throw_or_abort("SetConsoleMode(hStdin, newInputMode) failed", d_);
         }
     }
 
@@ -177,14 +186,26 @@ namespace wkilocpp
             //If the function fails, the return value is zero. To get extended error information, call GetLastError.
 
             //return ScreenSize{ .rows = -3, .cols = -3 };
-            throw_or_abort("GetConsoleScreenBufferInfo failed", d_);
+            impl::throw_or_abort("GetConsoleScreenBufferInfo failed", d_);
         }
         
         const int col_size = csbi.srWindow.Right - csbi.srWindow.Left + 1;
         const int row_size = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
 
-        if (col_size <= 0 || row_size <= 0) {
-            throw_or_abort("col_size or row_size less or equal to zero.", d_);
+
+        if (col_size <= 0 || row_size <= 0) 
+        {
+            std::printf("col: %d row: %d\n", col_size, row_size);
+            impl::throw_or_abort("col_size or row_size less or equal to zero.", d_);
+        }
+        
+        constexpr int MAX_8K_COL = 8192;
+        constexpr int MAX_8K_ROW = 8192;
+
+        if (col_size > MAX_8K_COL || row_size > MAX_8K_ROW) 
+        {
+            std::printf("col: %d row: %d\n", col_size, row_size);
+            impl::throw_or_abort("col_size or row_size very big", d_);
         }
 
         return ScreenSize{ .rows = static_cast<size_t>( row_size ), .cols = static_cast<size_t>(col_size) };
