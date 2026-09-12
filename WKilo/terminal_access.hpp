@@ -16,8 +16,8 @@ namespace wkilocpp
 
 	struct ScreenSize
 	{
-		int rows;
-		int cols;
+		size_t rows;
+		size_t cols;
 	};
 
 	struct ScreenHandle

@@ -183,7 +183,11 @@ namespace wkilocpp
         const int col_size = csbi.srWindow.Right - csbi.srWindow.Left + 1;
         const int row_size = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
 
-        return ScreenSize{ .rows = row_size, .cols = col_size };
+        if (col_size <= 0 || row_size <= 0) {
+            throw_or_abort("col_size or row_size less or equal to zero.", d_);
+        }
+
+        return ScreenSize{ .rows = static_cast<size_t>( row_size ), .cols = static_cast<size_t>(col_size) };
     }
 
     // Following code uses the Windows api to winRead and winWrite to console
