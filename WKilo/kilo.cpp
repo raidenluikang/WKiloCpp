@@ -2,6 +2,11 @@
 
 #include "terminal_access.hpp"
 #include "unicode_space.hpp"
+#include "kilo_common.hpp"
+
+#if APP_HAS_EXCEPTIONS
+#include <system_error>
+#endif //!APP_HAS_EXCEPTIONS
 
 //C++ headers
 #include <filesystem>
@@ -22,25 +27,23 @@
 #include <charconv>
 #include <concepts>
 #include <ranges>
-/*** defines ***/
+
 
 namespace wkilocpp
 { 
 
-
-
-constexpr const char* KILO_VERSION = "0.0.1";
+constexpr std::string_view KILO_VERSION = "0.0.1";
 constexpr int KILO_TAB_STOP = 8;
 constexpr int KILO_QUIT_TIMES = 3;
 
-
-
+[[nodiscard]]
 constexpr int CTRL_KEY(const int key) noexcept 
 {
     constexpr int mask = 0x1F;
     return key & mask;
 }
 
+[[nodiscard]]
 constexpr bool my_is_space(const char c) noexcept
 {
     return unicode::is_space(static_cast<char32_t>(static_cast<unsigned char>(c)));
@@ -48,6 +51,7 @@ constexpr bool my_is_space(const char c) noexcept
 
 template <typename T> constexpr  bool is_separator(T) = delete; // use only char variant.
 
+[[nodiscard]]
 constexpr bool is_separator(const char c) noexcept
 {
     using namespace std::literals::string_view_literals;
@@ -57,11 +61,13 @@ constexpr bool is_separator(const char c) noexcept
     return my_is_space(c) || (c == '\0') || (specials.find(c) != specials.npos);
 }
 
+[[nodiscard]]
 constexpr bool my_is_control(const char c) noexcept
 {
     return unicode::is_control(static_cast<char32_t>(static_cast<unsigned char>(c)));
 }
 
+[[nodiscard]]
 constexpr bool my_is_digit(const char c) noexcept
 {
     return unicode::is_digit(static_cast<char32_t>(static_cast<unsigned char>(c)));
@@ -123,13 +129,16 @@ struct EditorRow
     std::vector<enum EditorHighlight> hl;
     bool hl_open_comment;
 
+    [[nodiscard]]
     size_t size() const noexcept { return chars.size(); }
 
-    
+    [[nodiscard]]
     size_t render_size() const noexcept { return render.size(); }
 
+    [[nodiscard]]
     size_t rowCxToRx(size_t cx) const noexcept;
 
+    [[nodiscard]]
     size_t rowRxToCx(size_t rx) const noexcept;
 
 };
@@ -153,6 +162,7 @@ struct EditorStatusMessage
         this->last_time = clock_type::now();
     }
 
+    [[nodiscard]]
     rep_type elapsedMilliseconds() const noexcept
     {
         auto now = clock_type::now();
@@ -176,6 +186,7 @@ struct EditorConfig
     EditorStatusMessage statusMessage;
     std::optional< EditorSyntax > syntax ;
 
+    [[nodiscard]]
     size_t numrows() const noexcept { return rowList.size(); }
 
     // NOTE: See below item is commented out
@@ -184,6 +195,7 @@ struct EditorConfig
     EditorConfig();
     ~EditorConfig();
 
+    [[nodiscard]]
     bool writeToFile(std::ofstream& file) const;
 };
 
@@ -263,6 +275,7 @@ public:
     int run();
 
 private:
+    [[noreturn]]
     void die(const char* s);
     
     int writeOutput(const std::string_view cbuf) 
@@ -276,12 +289,13 @@ private:
     }
 
 
-
+    [[nodiscard]]
     int readKey();
 
     ScreenSize getCursorPosition();
 
     //return changed or not
+    [[nodiscard]]
     bool updateSyntaxImpl(size_t row_index);
 
     //updated [row_index .. end) until changed.
@@ -292,7 +306,6 @@ private:
 
     bool selectSyntaxHighlight();
 
-    
     void updateRow(size_t row_index);
 
     void insertRow(size_t at, std::string_view c_view);
@@ -332,6 +345,7 @@ private:
     void refreshScreen();
 
     template <TerminalCallback Callback, MessageCallback CallbackForMsg >
+    [[nodiscard]]
     std::string prompt(Callback callback, CallbackForMsg msgCb);
 
 
@@ -339,21 +353,43 @@ private:
     void moveCursorPageUp(int step);
     void moveCursorPageDown(int step);
 
+    [[nodiscard]]
     EditorKeyProcessState processKeypress();
+
+    void resetTerminalState() noexcept;
 };
 
-void TerminalEditor::die(const char* s) 
+
+void TerminalEditor::resetTerminalState() noexcept
 {
-    
     using namespace std::string_view_literals;
 
     writeOutput("\x1b[2J"sv);
     writeOutput("\x1b[H"sv);
-    
-    throw std::system_error( winGetLastError(), std::system_category(), s);
+
+    screenHandle_.disableRawMode();
+}
+
+[[noreturn]]
+void TerminalEditor::die(const char* s) 
+{
+
+#if (APP_HAS_EXCEPTIONS)
+    throw std::system_error(winGetLastError(), std::system_category(), s);
+#else 
+    // Исключения отключены. Явно сбрасываем состояние терминала перед падением
+    resetTerminalState();
+
+    // Выводим ошибку в std::cerr, так как буфер std::cout при abort() не сбросится
+    std::cerr << "Fatal error: " << s << " (Error code: " << winGetLastError() << ")\n" << std::endl;
+
+    std::abort();
+#endif
+
 }
 
 
+[[nodiscard]]
 int TerminalEditor::readKey() 
 {
     int nread = 0;
@@ -487,11 +523,11 @@ ScreenSize TerminalEditor::getCursorPosition()
 
 
 /*** syntax highlighting ***/
-
-//return changed or not
+[[nodiscard]]
 bool TerminalEditor::updateSyntaxImpl(size_t row_index) 
 {
-    if (row_index >= editor_.rowList.size()) {
+    if (row_index >= editor_.rowList.size()) 
+    {
         return false;
     }
 
@@ -511,9 +547,9 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
     const std::string_view mce = editor_.syntax->multiline_comment_end;
 
 
-    bool prev_is_sep = true; // previous is separator
+    bool prev_is_sep = true; 
     
-    int in_string = 0;
+    std::optional<char> in_string = std::nullopt;
     
     bool in_comment = (row_index > 0 && editor_.rowList[row_index - 1].hl_open_comment);
 
@@ -571,7 +607,9 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
         }
 
         if (editor_.syntax->flags & HL_HIGHLIGHT_STRINGS) {
-            if (in_string) {
+            
+            if (in_string.has_value()) 
+            {
                 row.hl[i] = EditorHighlight::HL_STRING;
                 
                 if (c == '\\' && i + 1 < row.render_size() ) 
@@ -581,8 +619,10 @@ bool TerminalEditor::updateSyntaxImpl(size_t row_index)
                     continue;
                 }
                 
-                if (c == in_string) 
-                    in_string = 0;
+                if (c == in_string)
+                {
+                    in_string = std::nullopt;
+                }
 
                 i++;
                 prev_is_sep = true;
@@ -730,13 +770,14 @@ bool TerminalEditor::selectSyntaxHighlight()
             
             if ( is_matched )
             {
-
                 editor_.syntax = s;
                 
                 for (size_t index = 0; index != editor_.rowList.size(); index++) 
                 {
-                    // impl does not recursive call themself.
-                    updateSyntaxImpl(index);
+                    // impl does not recursive call themself. ignore return value.
+                    [[maybe_unused]] 
+                    const bool changed = updateSyntaxImpl(index);
+
                 }
 
                 return true;
@@ -747,7 +788,7 @@ bool TerminalEditor::selectSyntaxHighlight()
 }
 
 /*** rowList operations ***/
-
+[[nodiscard]]
 size_t EditorRow::rowCxToRx(size_t cx) const noexcept
 {
     return std::accumulate(chars.begin(), chars.begin() + std::min(cx, chars.size()), size_t{0},
@@ -757,6 +798,7 @@ size_t EditorRow::rowCxToRx(size_t cx) const noexcept
         });
 }
 
+[[nodiscard]]
 size_t EditorRow::rowRxToCx(size_t rx) const noexcept
 {
     size_t cur_rx = 0;
@@ -993,7 +1035,7 @@ void TerminalEditor::deleteChar()
 }
 
 /*** file i/o ***/
-
+[[nodiscard]]
 bool EditorConfig::writeToFile(std::ofstream& file) const
 {
     if (!file.is_open()) 
@@ -1450,6 +1492,7 @@ void TerminalEditor::refreshScreen() {
 /*** input ***/
 
 template <TerminalCallback Callback, MessageCallback CallbackForMsg>
+[[nodiscard]]
 std::string TerminalEditor::prompt(Callback callback, CallbackForMsg msgCb) 
 {
     constexpr size_t BUF_INITIAL_CAPACITY = 128;
@@ -1573,6 +1616,7 @@ void TerminalEditor::moveCursor(int key)
     }
 }
 
+[[nodiscard]]
 EditorKeyProcessState TerminalEditor::processKeypress() {
 
     using namespace std::string_view_literals;
@@ -1719,6 +1763,7 @@ TerminalEditor::TerminalEditor(int argc, char* argv[])
 
 TerminalEditor::~TerminalEditor()
 {
+    resetTerminalState();
 }
 
 

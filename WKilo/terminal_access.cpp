@@ -1,9 +1,18 @@
 
+
+
+#include "terminal_access.hpp"
+#include "kilo_common.hpp"
+
+
 #include <cstdio>
 #include <cstdlib>
 
+#if APP_HAS_EXCEPTIONS
+
 #include <system_error>
 
+#endif //!APP_HAS_EXCEPTIONS
 
 #include <string_view>
 #include <optional>
@@ -16,8 +25,6 @@
 #define NOMINMAX
 #define _WIN32_WINNT 0x0600   // Windows Vista и новее
 #include <windows.h>
-
-#include "terminal_access.hpp"
 
 
 
@@ -52,7 +59,26 @@ namespace wkilocpp
             fflush(stdout);
         }
     };
+
+    void throw_or_abort(const char* msg, ScreenHandle::impl* d_) {
+#if APP_HAS_EXCEPTIONS
+        throw std::system_error(GetLastError(), std::system_category(), msg);
+#else 
+        if (d_ != nullptr) 
+        {
+            d_->disableRawMode();
+        }
+        std::fprintf(stderr, "%s. ErrorCode: %d\n", msg, GetLastError());
+        std::fflush(stderr);
+        std::abort();
+#endif 
+    }
     
+    void ScreenHandle::disableRawMode() 
+    {
+        d_->disableRawMode();
+    }
+
     ScreenHandle::ScreenHandle() 
         : d_(new impl{})
     {
@@ -60,23 +86,21 @@ namespace wkilocpp
 
         if (d_->hStdin == INVALID_HANDLE_VALUE || d_->hStdin == NULL)
         {
-            throw std::system_error(GetLastError(), std::system_category(), "GetStdHandle(STD_INPUT_HANDLE) failed");
+            throw_or_abort("GetStdHandle(STD_INPUT_HANDLE) failed", d_);
         }
 
         d_->hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
 
         if (d_->hStdout == INVALID_HANDLE_VALUE || d_->hStdout == NULL)
         {
-            throw std::system_error(GetLastError(), std::system_category(), "GetStdHandle(STD_OUTPUT_HANDLE) failed");
+            throw_or_abort("GetStdHandle(STD_OUTPUT_HANDLE) failed", d_);
         }
     }
 
     ScreenHandle::~ScreenHandle()
     {
-        
         d_->disableRawMode();
         delete d_;
-        
     }
 
     
@@ -87,7 +111,7 @@ namespace wkilocpp
         DWORD outputMode = 0;
         if (!GetConsoleMode(d_->hStdout, &outputMode))
         {
-            throw std::system_error(GetLastError(), std::system_category(), "GetConsoleMode(hStdout) failed");
+            throw_or_abort("GetConsoleMode(hStdout) failed", d_);
         }
 
         d_->savedConsoleOutputMode = outputMode;
@@ -98,7 +122,7 @@ namespace wkilocpp
 
         if (!SetConsoleMode(d_->hStdout, newOutputMode))
         {
-            throw std::system_error(GetLastError(), std::system_category(), "SetConsoleMode(hStdout, newOutputMode) failed");
+            throw_or_abort("SetConsoleMode(hStdout, newOutputMode) failed", d_);
         }
 
 
@@ -106,7 +130,7 @@ namespace wkilocpp
         DWORD inputMode = 0;
         if (!GetConsoleMode(d_->hStdin, &inputMode))
         {
-            throw std::system_error(GetLastError(), std::system_category(), "GetConsoleMode(hStdin) failed");
+            throw_or_abort("GetConsoleMode(hStdin) failed", d_);
         }
 
         d_->savedConsoleInputMode = inputMode;
@@ -118,7 +142,7 @@ namespace wkilocpp
 
         if (!SetConsoleMode(d_->hStdin, newInputMode))
         {
-            throw std::system_error(GetLastError(), std::system_category(), "SetConsoleMode(hStdin, newInputMode) failed");
+            throw_or_abort("SetConsoleMode(hStdin, newInputMode) failed", d_);
         }
     }
 
@@ -143,7 +167,7 @@ namespace wkilocpp
             //If the function fails, the return value is zero. To get extended error information, call GetLastError.
 
             //return ScreenSize{ .rows = -3, .cols = -3 };
-            throw std::system_error( ::GetLastError(), std::system_category(), "GetConsoleScreenBufferInfo failed");
+            throw_or_abort("GetConsoleScreenBufferInfo failed", d_);
         }
         
         const int col_size = csbi.srWindow.Right - csbi.srWindow.Left + 1;
@@ -159,14 +183,14 @@ namespace wkilocpp
     int ScreenHandle::winRead( /*int ignored,*/ std::span<char> buf)
     {
         DWORD read = 0;
-        BOOL bOk = ReadConsoleA(d_->hStdin, buf.data(), buf.size(), &read, NULL);
+        BOOL bOk = ReadConsoleA(d_->hStdin, buf.data(), static_cast<DWORD>( buf.size() ), &read, NULL);
         
         if (!bOk) 
         {
             return -1;
         }
         
-        return (int)read;
+        return static_cast<int>( read );
     }
 
     int ScreenHandle::winWrite( /*int ignored,*/ std::span<const char> cbuf)
@@ -179,7 +203,7 @@ namespace wkilocpp
             return -1;
         }
         
-        return (int)wrote;
+        return static_cast<int>( wrote ) ;
     }
 
     unsigned long winGetLastError() 

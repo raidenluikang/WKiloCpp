@@ -22,18 +22,21 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="kilo_orig.c">
-      <Filter>Header Files</Filter>
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="terminal_access.hpp">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="terminal_access_orig.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="kilo_common.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="terminal_access.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="unicode_space.hpp">
-      <Filter>Source Files</Filter>
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
