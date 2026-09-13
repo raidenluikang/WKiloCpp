@@ -32,14 +32,14 @@ namespace wkilocpp
 
 		void enableRawMode();
 
-		int winRead( /*int ignored,*/ std::span<char> buf);
+		int winRead( /*int ignored,*/ std::span<char> buf) const noexcept;
 
-		int winWrite( /*int ignored,*/ std::span<const char> cbuf);
+		int winWrite( /*int ignored,*/ std::span<const char> cbuf) const noexcept;
 
 		/*guaranteed that screen size row and cols in [1..8192] */
 		ScreenSize getWindowSize() const;
 
-		void disableRawMode();
+		void disableRawMode() const noexcept;
 	private:
 		struct impl;
 		struct impl* d_;

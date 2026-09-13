@@ -46,7 +46,7 @@ namespace wkilocpp
         BOOL rawModeEnabled = false;
         BOOL unusedNeverUsed = false;
 
-        void disableRawMode()
+        void disableRawMode() noexcept
         {
             //Защита от двойной вызов.
             if (rawModeEnabled) 
@@ -92,7 +92,7 @@ namespace wkilocpp
 #endif 
     }
     
-    void ScreenHandle::disableRawMode() 
+    void ScreenHandle::disableRawMode() const noexcept
     {
         d_->disableRawMode();
     }
@@ -218,7 +218,7 @@ namespace wkilocpp
     //  instead the C library functions
     //  below stuff works as expected.
 
-    int ScreenHandle::winRead( /*int ignored,*/ std::span<char> buf)
+    int ScreenHandle::winRead( /*int ignored,*/ std::span<char> buf) const noexcept
     {
         DWORD read = 0;
         BOOL bOk = ReadConsoleA(d_->hStdin, buf.data(), static_cast<DWORD>( buf.size() ), &read, NULL);
@@ -231,7 +231,7 @@ namespace wkilocpp
         return static_cast<int>( read );
     }
 
-    int ScreenHandle::winWrite( /*int ignored,*/ std::span<const char> cbuf)
+    int ScreenHandle::winWrite( /*int ignored,*/ std::span<const char> cbuf) const noexcept
     {
         DWORD wrote = 0;
         BOOL bOk = WriteConsoleA(d_->hStdout, cbuf.data(), static_cast<DWORD>(cbuf.size()), &wrote, NULL);

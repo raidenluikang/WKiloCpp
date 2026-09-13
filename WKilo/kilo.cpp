@@ -31,6 +31,7 @@
 #include <charconv>
 #include <concepts>
 #include <ranges>
+#include <variant>
 
 #pragma warning(disable : 4820) //padding bytes no interesting.
 #pragma warning(disable: 5045) //  /Qspectre not interesting in current moment
@@ -76,11 +77,11 @@ namespace wkilocpp
         return unicode::is_control(static_cast<char32_t>(static_cast<unsigned char>(c)));
     }
 
-    [[nodiscard]]
-    constexpr bool my_is_control(const int c) noexcept
-    {
-        return unicode::is_control(static_cast<char32_t>(static_cast<unsigned int>(c)));
-    }
+    //[[nodiscard]]
+    //constexpr bool my_is_control(const int c) noexcept
+    //{
+    //    return unicode::is_control(static_cast<char32_t>(static_cast<unsigned int>(c)));
+    //}
     template <typename T> constexpr bool my_is_control(T) noexcept = delete;//other variants should be error.
 
 
@@ -89,6 +90,13 @@ namespace wkilocpp
     {
         return unicode::is_digit(static_cast<char32_t>(static_cast<unsigned char>(c)));
     }
+
+    [[nodiscard]]
+    constexpr bool my_is_ascii_digit(const char c) noexcept
+    {
+        return (c >= '0' && c <= '9');
+    }
+    template <typename T> constexpr bool my_is_ascii_digit(const T) noexcept = delete;
 
 
     template <typename Container, typename SizeType >
@@ -108,7 +116,7 @@ namespace wkilocpp
 
 
     //@TODO: made it enum class.
-    enum EditorKey
+    enum class EditorKey
     {
         BACKSPACE = 127,
         ARROW_LEFT = 1000,
@@ -121,6 +129,23 @@ namespace wkilocpp
         PAGE_UP,
         PAGE_DOWN
     };
+    
+    enum class ControlKey : int
+    {
+        Quit = CTRL_KEY('q'),
+        Save = CTRL_KEY('s'),
+        Find = CTRL_KEY('f'),
+        Back = CTRL_KEY('h'),
+        EscapeL = CTRL_KEY('l'),
+        EscapeSymbol = '\x1b',
+        EnterR = '\r',
+    };
+    
+    enum class UnknownKey : int {};
+
+    using TKey = std::variant<char, enum EditorKey, enum ControlKey, enum UnknownKey>;
+
+
 
     enum class EditorHighlight : unsigned char
     {
@@ -289,7 +314,7 @@ namespace wkilocpp
 
 /*** terminal ***/
 template <typename C >  
-concept TerminalCallback = std::invocable<C, const std::string&, int>;
+concept TerminalCallback = std::invocable<C, const std::string&, const TKey >;
 
 template <typename C>
 concept MessageCallback = std::invocable<C, const std::string&> and std::convertible_to<std::invoke_result_t<C, const std::string&>, std::string>;
@@ -322,21 +347,21 @@ public:
 
 private:
     [[noreturn]]
-    void die(const char* s);
+    void die(const char* s) const;
     
-    int writeOutput(const std::string_view cbuf) 
+    int writeOutput(const std::string_view cbuf) const noexcept
     {
         return screenHandle_.winWrite( /*/STDOUT_FILENO,*/ cbuf);
     }
 
-    int readInput(const std::span<char> buf) 
+    int readInput(const std::span<char> buf) const noexcept
     {
         return screenHandle_.winRead(/*STDIN_FILENO,*/ buf);
     }
 
 
     [[nodiscard]]
-    int readKey();
+    TKey readKey() const;
 
     ScreenSize getCursorPosition();
 
@@ -376,7 +401,7 @@ private:
 
     void saveToFile();
 
-    void findCallback(const std::string& query, int key);
+    void findCallback(const std::string& query, const TKey key);
 
     void find();
 
@@ -395,18 +420,18 @@ private:
     std::string prompt(Callback callback, CallbackForMsg msgCb);
 
 
-    void moveCursor(int key);
+    void moveCursor(const enum EditorKey key);
     void moveCursorPageUp(size_t step);
     void moveCursorPageDown(size_t step);
 
     [[nodiscard]]
     EditorKeyProcessState processKeypress();
 
-    void resetTerminalState() noexcept;
+    void resetTerminalState() const noexcept;
 };
 
 
-void TerminalEditor::resetTerminalState() noexcept
+void TerminalEditor::resetTerminalState() const noexcept
 {
     using namespace std::string_view_literals;
 
@@ -417,7 +442,7 @@ void TerminalEditor::resetTerminalState() noexcept
 }
 
 [[noreturn]]
-void TerminalEditor::die(const char* s) 
+void TerminalEditor::die(const char* s) const 
 {
 
 #if (APP_HAS_EXCEPTIONS)
@@ -436,7 +461,7 @@ void TerminalEditor::die(const char* s)
 
 
 [[nodiscard]]
-int TerminalEditor::readKey() 
+TKey TerminalEditor::readKey() const
 {
     int nread = 0;
     
@@ -455,6 +480,19 @@ int TerminalEditor::readKey()
 
     if (c != ESCAPE_SYMBOL)
     {
+        constexpr unsigned char CONTROL_KEY_MAX = 31;
+        
+
+        const unsigned char u = static_cast<unsigned char>(c);
+
+        if (u <= CONTROL_KEY_MAX) 
+        {
+            return static_cast< enum ControlKey >( c ) ;
+        }
+        
+        if (static_cast<int>(c) == static_cast<int>(EditorKey::BACKSPACE))
+            return EditorKey::BACKSPACE; // backspace should be tracked as EditorKey.
+        
         return c;
     }
 
@@ -465,30 +503,30 @@ int TerminalEditor::readKey()
     const std::span<char, 3> seq_span(seq);
 
     if (readInput( seq_span.subspan<0, 1>() ) != 1) 
-        return ESCAPE_SYMBOL;
+        return ControlKey::EscapeSymbol;
 
     if (readInput( seq_span.subspan<1, 1>() ) != 1) 
-        return ESCAPE_SYMBOL;
+        return ControlKey::EscapeSymbol;
 
 
     if (seq[0] == '[') 
     {
-        if (seq[1] >= '0' && seq[1] <= '9') 
+        if ( my_is_ascii_digit(seq[1]) ) 
         {
             if (readInput( seq_span.subspan<2, 1>() ) != 1) 
-                return ESCAPE_SYMBOL;
+                return ControlKey::EscapeSymbol;
 
             if (seq[2] == '~') 
             {
                 switch (seq[1]) 
                 {
-                case '1': return HOME_KEY;
-                case '3': return DEL_KEY;
-                case '4': return END_KEY;
-                case '5': return PAGE_UP;
-                case '6': return PAGE_DOWN;
-                case '7': return HOME_KEY;
-                case '8': return END_KEY;
+                case '1': return EditorKey::HOME_KEY;
+                case '3': return EditorKey::DEL_KEY;
+                case '4': return EditorKey::END_KEY;
+                case '5': return EditorKey::PAGE_UP;
+                case '6': return EditorKey::PAGE_DOWN;
+                case '7': return EditorKey::HOME_KEY;
+                case '8': return EditorKey::END_KEY;
                 default:
                     break;
                 }
@@ -497,12 +535,12 @@ int TerminalEditor::readKey()
         else {
             switch (seq[1]) 
             {
-            case 'A': return ARROW_UP;
-            case 'B': return ARROW_DOWN;
-            case 'C': return ARROW_RIGHT;
-            case 'D': return ARROW_LEFT;
-            case 'H': return HOME_KEY;
-            case 'F': return END_KEY;
+            case 'A': return EditorKey::ARROW_UP;
+            case 'B': return EditorKey::ARROW_DOWN;
+            case 'C': return EditorKey::ARROW_RIGHT;
+            case 'D': return EditorKey::ARROW_LEFT;
+            case 'H': return EditorKey::HOME_KEY;
+            case 'F': return EditorKey::END_KEY;
             default:
                 break;
             }
@@ -511,14 +549,14 @@ int TerminalEditor::readKey()
     else if (seq[0] == 'O') 
     {
         switch (seq[1]) {
-        case 'H': return HOME_KEY;
-        case 'F': return END_KEY;
+        case 'H': return EditorKey::HOME_KEY;
+        case 'F': return EditorKey::END_KEY;
         default:
             break;
         }
     }
 
-    return ESCAPE_SYMBOL;
+    return ControlKey::EscapeSymbol;
     
 }
 
@@ -1188,7 +1226,7 @@ void TerminalEditor::saveToFile()
     bool const noFileName = editor_.filename.empty();
     if (noFileName) 
     {
-        auto mainCb = [](const std::string&, int) {}; //do nothing.
+        auto mainCb = [](const std::string&, const TKey) {}; //do nothing.
         
         auto msgCb = [](const std::string& buf) 
         {
@@ -1245,7 +1283,7 @@ void TerminalEditor::saveToFile()
 
 /*** find ***/
 
-void TerminalEditor::findCallback(const std::string& query, int key) {
+void TerminalEditor::findCallback(const std::string& query, const TKey key) {
 
     if (saved_hl_.has_value()) 
     {
@@ -1258,21 +1296,74 @@ void TerminalEditor::findCallback(const std::string& query, int key) {
         saved_hl_ = std::nullopt;
     }
 
-    if (key == '\r' || key == ESCAPE_SYMBOL) {
-        last_match_ = -1;
-        direction_ = 1;
+    struct visitor
+    {
+        TerminalEditor* this_;
+
+        bool operator()([[maybe_unused]] const char c) const
+        {
+            this_->last_match_ = -1;
+            this_->direction_ = 1;
+            return true; // continue
+        }
+
+        bool operator ()(const enum ControlKey key) const
+        {
+            if (key == ControlKey::EnterR || key == ControlKey::EscapeSymbol)
+            {
+                this_->last_match_ = -1;
+                this_->direction_ = 1;
+                return false; // exit
+            }
+            else {
+                this_->last_match_ = -1;
+                this_->direction_ = 1;
+                return true; // continue
+            }
+        }
+
+        bool operator ()(const enum UnknownKey) const
+        {
+            this_->last_match_ = -1;
+            this_->direction_ = 1;
+            return true; // continue
+        }
+
+        bool operator()(const enum EditorKey key) const
+        {
+            if (key == EditorKey::ARROW_RIGHT || key == EditorKey::ARROW_DOWN) {
+                this_->direction_ = 1;
+            }
+            else if (key == EditorKey::ARROW_LEFT || key == EditorKey::ARROW_UP) {
+                this_->direction_ = -1;
+            }
+            else {
+                this_->last_match_ = -1;
+                this_->direction_ = 1;
+            }
+            return true; //continue
+        }
+    };
+
+
+    bool doContinue = std::visit(visitor{ this }, key);
+    if (!doContinue)
         return;
-    }
-    else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
-        direction_ = 1;
-    }
-    else if (key == ARROW_LEFT || key == ARROW_UP) {
-        direction_ = -1;
-    }
-    else {
-        last_match_ = -1;
-        direction_ = 1;
-    }
+    //if (key == '\r' || key == ESCAPE_SYMBOL) {
+    //    last_match_ = -1;
+    //    direction_ = 1;
+    //    return;
+    //}
+    //else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
+    //    direction_ = 1;
+    //}
+    //else if (key == ARROW_LEFT || key == ARROW_UP) {
+    //    direction_ = -1;
+    //}
+    //else {
+    //    last_match_ = -1;
+    //    direction_ = 1;
+    //}
 
     if (last_match_ == -1) 
         direction_ = 1;
@@ -1612,74 +1703,121 @@ template <TerminalCallback Callback, MessageCallback CallbackForMsg>
 std::string TerminalEditor::prompt(Callback callback, CallbackForMsg msgCb) 
 {
     constexpr size_t BUF_INITIAL_CAPACITY = 128;
-    constexpr int CHAR_MAX_VALUE = 128;
-
-    std::string buf;
-    buf.reserve(BUF_INITIAL_CAPACITY);
-
+   // constexpr int CHAR_MAX_VALUE = 128;
     
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+    struct visitor
+    {
+        TerminalEditor* self;
+        std::string buf;
+
+        std::optional<std::string> operator ()(const char c) 
+        {
+            if (!my_is_control(c) )
+            {
+                buf.append(1, c);
+            }
+            return std::nullopt;
+        }
+
+        std::optional<std::string> operator()(const enum EditorKey key) 
+        {
+            if (key == EditorKey::DEL_KEY || key == EditorKey::BACKSPACE)
+            {
+                //C++: There removed last element 
+                if (!buf.empty()) {
+                    buf.pop_back();
+                }
+            }
+            else {
+                //nothing do
+            }
+            return std::nullopt;
+        }
+
+        std::optional<std::string> operator()(const enum ControlKey key)
+        {
+            if (key == ControlKey::Back) {
+                //C++: There removed last element 
+                if (!buf.empty()) {
+                    buf.pop_back();
+                }
+            }
+            else if (key == ControlKey::EscapeSymbol) {
+                self->editor_.statusMessage.setMessage("");
+
+                return "";
+            }
+            else if (key == ControlKey::EnterR)
+            {
+                if (!buf.empty())
+                {
+                    self->editor_.statusMessage.setMessage("");
+
+                    return buf;
+                }
+            }
+            else {
+                //do nothing or add
+            }
+            
+            return std::nullopt;
+        }
+        std::optional<std::string> operator()([[maybe_unused]] const enum UnknownKey key) 
+        {
+            const int c = static_cast<int>(key);
+            if (c >= CHAR_MIN && c <= CHAR_MAX) {
+                const char cc = static_cast<char>(c);
+                if (!my_is_control(cc)) {
+                    buf.append(1, cc);
+                }
+            }
+            return std::nullopt;
+        }
+    } ;
+
+    visitor visitor_obj{ this};
+    visitor_obj.buf.reserve(BUF_INITIAL_CAPACITY);
+
     while (true) 
     {
-        editor_.statusMessage.setMessage( msgCb(buf) );
+        editor_.statusMessage.setMessage( msgCb(visitor_obj.buf) );
         
         refreshScreen();
 
-        const int c = readKey();
+        const TKey key = readKey();
+
+        std::optional<std::string> result = std::visit(visitor_obj, key);
         
-        if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) 
-        {
-            //C++: There removed last element 
-            if (!buf.empty()) {
-                buf.pop_back();
-            }
-        }
-        else if (c == ESCAPE_SYMBOL) {
-            editor_.statusMessage.setMessage("");
-            
-            callback(buf, c);
+        callback(visitor_obj.buf, key);
 
-            return "";
-        }
-        else if (c == '\r') 
+        if (result.has_value()) 
         {
-            
-            if (!buf.empty()) 
-            {
-               editor_.statusMessage.setMessage("");
-                
-               callback(buf, c);
-
-                return buf;
-            }
+            return *result;
         }
-        else if (!my_is_control(c) && c < CHAR_MAX_VALUE)
-        {
-            buf += static_cast<char>(c);
-        }
-
-        callback(buf, c);
+        
     }
 }
 
 void TerminalEditor::moveCursorPageUp(size_t step)
 {
     for (size_t i = 0; i < step; i++) {
-        moveCursor(ARROW_UP);
+        moveCursor(EditorKey::ARROW_UP);
     }
 }
 
 void TerminalEditor::moveCursorPageDown(size_t step)
 {
     for (size_t i = 0; i < step; i++) {
-        moveCursor(ARROW_DOWN);
+        moveCursor(EditorKey::ARROW_DOWN);
     }
 }
 
-void TerminalEditor::moveCursor(int key) 
+void TerminalEditor::moveCursor(const enum EditorKey key) 
 {
     switch (key) 
     {
-    case ARROW_LEFT:
+    case EditorKey::ARROW_LEFT:
         if (editor_.cx > 0) 
         {
             editor_.cx--;
@@ -1690,7 +1828,7 @@ void TerminalEditor::moveCursor(int key)
             editor_.cx =  editor_.rowList[editor_.cy].size() ;
         }
         break;
-    case ARROW_RIGHT:
+    case EditorKey::ARROW_RIGHT:
         if (std::cmp_less(editor_.cy , editor_.numrows() ) )
         {
             size_t row_size = editor_.rowList[editor_.cy].size();
@@ -1710,15 +1848,22 @@ void TerminalEditor::moveCursor(int key)
             //do nothing
         }
         break;
-    case ARROW_UP:
+    case EditorKey::ARROW_UP:
         if (editor_.cy  > 0) {
             editor_.cy--;
         }
         break;
-    case ARROW_DOWN:
+    case EditorKey::ARROW_DOWN:
         if (editor_.cy < editor_.numrows()) {
             editor_.cy++;
         }
+        break;
+    case EditorKey::BACKSPACE:
+    case EditorKey::DEL_KEY:
+    case EditorKey::END_KEY:
+    case EditorKey::HOME_KEY:
+    case EditorKey::PAGE_DOWN:
+    case EditorKey::PAGE_UP:
         break;
     default:
         break;
@@ -1740,98 +1885,263 @@ EditorKeyProcessState TerminalEditor::processKeypress() {
 
     using namespace std::string_view_literals;
 
-    const int c = readKey();
+    //const int c = readKey();
+    const TKey key = readKey();
+    
+    
+    struct visitor
+    {
+        TerminalEditor* self;
 
-    switch (c) {
-    case '\r':
-        insertNewline();
-        break;
-
-    case CTRL_KEY('q'):
-        if (editor_.dirty && quit_times_ > 0) 
+        void restore_quit_time() const 
         {
-            editor_.statusMessage.setMessage(std::format("WARNING!!! File has unsaved changes. "
-                "Press Ctrl-Q {} more times to quit.", quit_times_));
-            quit_times_--;
+            self->quit_times_ = KILO_QUIT_TIMES;
+        }
+        
+        EditorKeyProcessState operator()(const enum ControlKey key) const
+        {
+            switch (key)
+            {
+            case ControlKey::EnterR : // '\r'  case
+            {
+                self->insertNewline();
+                break;
+            }
+            
+            case ControlKey::Quit : // CTRL_KEY('q') case 
+            {
+                if (self->editor_.dirty && self->quit_times_ > 0)
+                {
+                    self->editor_.statusMessage.setMessage(std::format("WARNING!!! File has unsaved changes. "
+                        "Press Ctrl-Q {} more times to quit.", self->quit_times_));
+                    self->quit_times_--;
+                    return EditorKeyProcessState::do_continue;
+                }
+
+                self->writeOutput("\x1b[2J"sv);
+                self->writeOutput("\x1b[H"sv);
+
+                return EditorKeyProcessState::do_exit;
+            }
+
+            case ControlKey::Save: // CTRL_KEY('s') case
+            {
+                self->saveToFile();
+                break;
+            }
+
+            case ControlKey::Find: // CTRL_KEY('f') case 
+            {
+                self->find();
+                break;
+            }
+
+            case ControlKey::Back:  // CTRL_KEY('h') case
+            {
+                self->deleteChar();
+                break;
+            }
+
+            case ControlKey::EscapeL:
+            case ControlKey::EscapeSymbol:
+            {
+                //do nothing
+                break;
+            }
+            default:
+            {
+                constexpr int CHAR_MAX_VALUE = 256;
+
+                const unsigned c = static_cast<unsigned>(key);
+                if (c < CHAR_MAX_VALUE )
+                {
+                    self->insertChar(static_cast<char>(c));
+                }
+                break;
+            }
+            }//end switch
+            
+            restore_quit_time();
+            return EditorKeyProcessState::do_continue;
+        } // end ControlKey 
+        
+        EditorKeyProcessState operator()(const enum EditorKey key) const
+        {
+            switch (key) {
+
+            case EditorKey::HOME_KEY:
+                self->editor_.cx = 0;
+                break;
+
+            case EditorKey::END_KEY:
+                if (self->editor_.cy < self->editor_.numrows())
+                {
+                    self->editor_.cx = self->editor_.rowList[self->editor_.cy].size();
+                }
+                break;
+
+                break;
+
+            case EditorKey::BACKSPACE:
+            case EditorKey::DEL_KEY:
+                if (key == EditorKey::DEL_KEY)
+                {
+                    self->moveCursor(EditorKey::ARROW_RIGHT);
+                }
+
+                self->deleteChar();
+                break;
+
+            case EditorKey::PAGE_UP:
+            {
+                self->editor_.cy = self->editor_.rowoff;
+                self->moveCursorPageUp(self->editor_.screenSize.rows);
+            }
+            break;
+            case EditorKey::PAGE_DOWN:
+            {
+                //Threre screenSize.rows > 0 
+                self->editor_.cy = std::min(self->editor_.rowoff + self->editor_.screenSize.rows - 1, self->editor_.numrows());
+                self->moveCursorPageDown(self->editor_.screenSize.rows);
+            }
+            break;
+
+            case EditorKey::ARROW_UP:
+            case EditorKey::ARROW_DOWN:
+            case EditorKey::ARROW_LEFT:
+            case EditorKey::ARROW_RIGHT:
+                self->moveCursor(key);
+                break;
+
+            
+            default:
+            {
+                constexpr int CHAR_MAX_VALUE = 256;
+                if (static_cast<unsigned>(key) < CHAR_MAX_VALUE)
+                {
+                    self->insertChar(static_cast<char>(key));
+                }
+            }
+            break;
+            }
+            restore_quit_time();
+            return EditorKeyProcessState::do_continue;
+        } // end EditorKey
+
+        EditorKeyProcessState operator()(const char key) const
+        {
+            self->insertChar(key);
+            restore_quit_time();
             return EditorKeyProcessState::do_continue;
         }
-        
-        writeOutput("\x1b[2J"sv);
-        writeOutput("\x1b[H"sv);
 
-        return EditorKeyProcessState::do_exit;
-        
-        break;
-
-    case CTRL_KEY('s'):
-        saveToFile();
-        break;
-
-    case HOME_KEY:
-        editor_.cx = 0;
-        break;
-
-    case END_KEY:
-        if (editor_.cy < editor_.numrows())
+        EditorKeyProcessState operator()([[maybe_unused]] const enum UnknownKey key) const
         {
-            editor_.cx =  editor_.rowList[editor_.cy].size();
+            //do nothing or add some thing ?
+            constexpr int CHAR_MAX_VALUE = 128;
+            constexpr int CHAR_MIN_VALUE = -128;
+            const int c = static_cast<int>(key);
+            if (c < CHAR_MAX_VALUE && c >= CHAR_MIN_VALUE) {
+                self->insertChar(static_cast<char>(c));
+            }
+            else {
+                self->insertChar('?');
+            }
+            restore_quit_time();
+            return EditorKeyProcessState::do_continue;
         }
-        break;
+    };
 
-    case CTRL_KEY('f'):
-        find();
-        break;
+    //switch (c) {
+    //case '\r':
+    //    insertNewline();
+    //    break;
 
-    case BACKSPACE:
-    case CTRL_KEY('h'):
-    case DEL_KEY:
-        if (c == DEL_KEY) 
-        {
-            moveCursor(ARROW_RIGHT);
-        }
-        
-        deleteChar();
-        break;
+    //case CTRL_KEY('q'):
+    //    if (editor_.dirty && quit_times_ > 0) 
+    //    {
+    //        editor_.statusMessage.setMessage(std::format("WARNING!!! File has unsaved changes. "
+    //            "Press Ctrl-Q {} more times to quit.", quit_times_));
+    //        quit_times_--;
+    //        return EditorKeyProcessState::do_continue;
+    //    }
+    //    
+    //    writeOutput("\x1b[2J"sv);
+    //    writeOutput("\x1b[H"sv);
 
-    case PAGE_UP:
-    {
-        editor_.cy = editor_.rowoff;
-        moveCursorPageUp(editor_.screenSize.rows);
-    }
-    break;
-    case PAGE_DOWN:
-    {
-        //Threre screenSize.rows > 0 
-        editor_.cy = std::min( editor_.rowoff + editor_.screenSize.rows - 1, editor_.numrows() );
-        moveCursorPageDown(editor_.screenSize.rows);
-    }
-    break;
+    //    return EditorKeyProcessState::do_exit;
+    //    
+    //    break;
 
-    case ARROW_UP:
-    case ARROW_DOWN:
-    case ARROW_LEFT:
-    case ARROW_RIGHT:
-        moveCursor(c);
-        break;
+    //case CTRL_KEY('s'):
+    //    saveToFile();
+    //    break;
 
-    case CTRL_KEY('l'):
-    case ESCAPE_SYMBOL:
-        break;
+    //case HOME_KEY:
+    //    editor_.cx = 0;
+    //    break;
 
-    default:
-    {
-        constexpr int CHAR_MAX_VALUE = 128;
-        if (c < CHAR_MAX_VALUE)
-        {
-            insertChar(static_cast<char>(c));
-        }
-    }
-        break;
-    }
+    //case END_KEY:
+    //    if (editor_.cy < editor_.numrows())
+    //    {
+    //        editor_.cx =  editor_.rowList[editor_.cy].size();
+    //    }
+    //    break;
 
-    quit_times_ = KILO_QUIT_TIMES;
+    //case CTRL_KEY('f'):
+    //    find();
+    //    break;
 
-    return EditorKeyProcessState::do_continue;
+    //case BACKSPACE:
+    //case CTRL_KEY('h'):
+    //case DEL_KEY:
+    //    if (c == DEL_KEY) 
+    //    {
+    //        moveCursor(ARROW_RIGHT);
+    //    }
+    //    
+    //    deleteChar();
+    //    break;
+
+    //case PAGE_UP:
+    //{
+    //    editor_.cy = editor_.rowoff;
+    //    moveCursorPageUp(editor_.screenSize.rows);
+    //}
+    //break;
+    //case PAGE_DOWN:
+    //{
+    //    //Threre screenSize.rows > 0 
+    //    editor_.cy = std::min( editor_.rowoff + editor_.screenSize.rows - 1, editor_.numrows() );
+    //    moveCursorPageDown(editor_.screenSize.rows);
+    //}
+    //break;
+
+    //case ARROW_UP:
+    //case ARROW_DOWN:
+    //case ARROW_LEFT:
+    //case ARROW_RIGHT:
+    //    moveCursor(c);
+    //    break;
+
+    //case CTRL_KEY('l'):
+    //case ESCAPE_SYMBOL:
+    //    break;
+
+    //default:
+    //{
+    //    constexpr int CHAR_MAX_VALUE = 128;
+    //    if (c < CHAR_MAX_VALUE)
+    //    {
+    //        insertChar(static_cast<char>(c));
+    //    }
+    //}
+    //    break;
+    //}
+
+    const EditorKeyProcessState state = std::visit(visitor{ this }, key);
+     
+    return state;
 }
 
 
